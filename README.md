@@ -42,6 +42,7 @@ python fd_generator.py \
     -floorplan adjacency.txt \      # 相邻关系文件（必需）
     -output fd_output/ \            # 输出目录（可选，默认：fd_output/）
     -maxfdnum 3 \                   # 最大中间模块数（可选，默认：3）
+    -waive waive.txt \              # Waive 文件（可选，排除指定模块）
     -h                              # 显示帮助
 ```
 
@@ -95,6 +96,29 @@ MODULE3 MODULE2
 - 后面所有词：与该模块相邻的模块列表
 - 空格分隔（支持连续空格）
 - 相邻关系自动视为双向
+
+---
+
+## ⚙️ 高级选项
+
+### 排除模块（-waive）
+
+指定某些模块不允许用于 FD 穿线：
+
+```bash
+python fd_generator.py -top top.v -floorplan adj.txt -waive waive_modules.txt
+```
+
+**waive 文件格式：**
+```txt
+# 模块名空格分隔，支持多行
+MODULE1 MODULE3 MODULE5
+```
+
+**应用场景：**
+- 某些模块不适合插入 FD
+- 强制信号绕开特定区域
+- 优化时序路径
 
 ---
 
