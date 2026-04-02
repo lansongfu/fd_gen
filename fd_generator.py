@@ -46,7 +46,7 @@ from datetime import datetime
 # Global Configuration
 # ============================================================================
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 DEFAULT_OUTPUT_DIR = "fd_output"
 DEFAULT_MAX_FD_NUM = 3
 
@@ -626,6 +626,86 @@ def bfs_shortest_path(adjacency, src, dst, cache, waive_modules=None, only_modul
     return None
 
 
+def _find_path_to_top(adjacency, src_module, cache, waive_modules, only_modules):
+    """
+    Find path from src_module to TOP.
+    
+    TOP is a virtual module - signals reach TOP through adjacent submodules.
+    This function finds the shortest path from src_module to any TOP-adjacent module,
+    then appends TOP to the path.
+    
+    Args:
+        adjacency: floorplan adjacency dict
+        src_module: source module name
+        cache: BFSCache instance
+        waive_modules: set of modules to exclude
+        only_modules: set of modules allowed for routing
+    
+    Returns:
+        list: path ending with 'TOP', or None if no path
+    """
+    top_adjacent = adjacency.get('TOP', set())
+    
+    # Check if src_module is directly adjacent to TOP
+    if src_module in top_adjacent:
+        return [src_module, 'TOP']
+    
+    # Check if src_module is adjacent to any TOP-adjacent module (1 intermediate)
+    for adj_module in top_adjacent:
+        if adj_module in adjacency.get(src_module, set()):
+            return [src_module, adj_module, 'TOP']
+    
+    # BFS to find path to any TOP-adjacent module
+    for adj_module in top_adjacent:
+        if adj_module == src_module:
+            continue
+        path = bfs_shortest_path(adjacency, src_module, adj_module, cache, waive_modules, only_modules)
+        if path:
+            return path + ['TOP']
+    
+    return None
+
+
+def _find_path_from_top(adjacency, dst_module, cache, waive_modules, only_modules):
+    """
+    Find path from TOP to dst_module.
+    
+    TOP is a virtual module - signals originate from TOP through adjacent submodules.
+    This function finds the shortest path from any TOP-adjacent module to dst_module,
+    then prepends TOP to the path.
+    
+    Args:
+        adjacency: floorplan adjacency dict
+        dst_module: destination module name
+        cache: BFSCache instance
+        waive_modules: set of modules to exclude
+        only_modules: set of modules allowed for routing
+    
+    Returns:
+        list: path starting with 'TOP', or None if no path
+    """
+    top_adjacent = adjacency.get('TOP', set())
+    
+    # Check if dst_module is directly adjacent to TOP
+    if dst_module in top_adjacent:
+        return ['TOP', dst_module]
+    
+    # Check if dst_module is adjacent to any TOP-adjacent module (1 intermediate)
+    for adj_module in top_adjacent:
+        if adj_module in adjacency.get(dst_module, set()):
+            return ['TOP', adj_module, dst_module]
+    
+    # BFS to find path from any TOP-adjacent module
+    for adj_module in top_adjacent:
+        if adj_module == dst_module:
+            continue
+        path = bfs_shortest_path(adjacency, adj_module, dst_module, cache, waive_modules, only_modules)
+        if path:
+            return ['TOP'] + path
+    
+    return None
+
+
 # ============================================================================
 # FD Detection and Generation
 # ============================================================================
@@ -674,9 +754,13 @@ def detect_fd_signals(connections, adjacency, max_fd_num, logger, waive_modules=
         if len(conns) < 2:
             continue  # Need at least 2 connections
         
-        # Skip bidirectional signals (direction='b') - they require special handling
+        # Skip bidirectional signals (direction='b')
+        # Design Decision (v1.1.0): Bidirectional signals are completely ignored.
+        # Reason: Bidirectional signals require tri-state buffer handling, which is
+        #         beyond the scope of this FD tool. User should handle these manually.
+        # Reference: REQUIREMENTS.md - Boundary Cases - Bidirectional Signals
         if any(c.direction == 'b' for c in conns):
-            logger.info("Signal '{}': bidirectional signal, skipping FD.".format(signal_name))
+            logger.info("Signal '{}': bidirectional signal, skipping FD (per v1.1.0 design decision).".format(signal_name))
             continue
         
         # Check for multi-driver (multiple outputs, excluding TOP connections)
@@ -706,6 +790,7 @@ def detect_fd_signals(connections, adjacency, max_fd_num, logger, waive_modules=
         case_style = get_case_style(signal_name)
         
         # Get width (use first connection's width) and check consistency
+        # Note: Use first CONNECT's declared width as the reference
         width = conns[0].width
         width_mismatch = False
         for conn in conns[1:]:
@@ -715,9 +800,8 @@ def detect_fd_signals(connections, adjacency, max_fd_num, logger, waive_modules=
                     signal_name, width, conn.width, conn.module_name
                 ))
         
-        # Determine direction
-        # If any connection is 'b', it's bidirectional
-        is_bidir = any(c.direction == 'b' for c in conns)
+        # All signals reaching here are unidirectional (not bidirectional)
+        is_bidir = False
         
         # For each pair of modules, check if FD is needed
         processed_pairs = set()
@@ -735,51 +819,15 @@ def detect_fd_signals(connections, adjacency, max_fd_num, logger, waive_modules=
                     continue  # Direct connection, no FD needed
                 
                 # If one end is TOP, find path to/from TOP-adjacent module
+                # TOP is a virtual module - signals reach TOP through adjacent submodules
                 if mod2 == 'TOP':
-                    # Find path from mod1 to a TOP-adjacent module
-                    top_adjacent = adjacency.get('TOP', set())
-                    path = None
-                    for adj_module in top_adjacent:
-                        if adj_module == mod1:
-                            path = [mod1]  # Direct
-                            break
-                        if adj_module in adjacency.get(mod1, set()):
-                            path = [mod1, adj_module]  # Direct connection
-                            break
-                    
-                    if path is None:
-                        for adj_module in top_adjacent:
-                            if adj_module == mod1:
-                                continue
-                            path = bfs_shortest_path(adjacency, mod1, adj_module, cache, waive_modules, only_modules)
-                            if path:
-                                break
-                    
-                    if path:
-                        path = path + ['TOP']  # Append TOP to path
+                    # Find path from mod1 to any TOP-adjacent module, then append TOP
+                    path = _find_path_to_top(adjacency, mod1, cache, waive_modules, only_modules)
                     
                 elif mod1 == 'TOP':
-                    # Find path from a TOP-adjacent module to mod2
-                    top_adjacent = adjacency.get('TOP', set())
-                    path = None
-                    for adj_module in top_adjacent:
-                        if adj_module == mod2:
-                            path = [mod2]  # Direct
-                            break
-                        if adj_module in adjacency.get(mod2, set()):
-                            path = [adj_module, mod2]  # Direct connection
-                            break
+                    # Find path from any TOP-adjacent module to mod2, then prepend TOP
+                    path = _find_path_from_top(adjacency, mod2, cache, waive_modules, only_modules)
                     
-                    if path is None:
-                        for adj_module in top_adjacent:
-                            if adj_module == mod2:
-                                continue
-                            path = bfs_shortest_path(adjacency, adj_module, mod2, cache, waive_modules, only_modules)
-                            if path:
-                                break
-                    
-                    if path:
-                        path = ['TOP'] + path  # Prepend TOP to path
                 else:
                     # Regular path between two modules
                     path = bfs_shortest_path(adjacency, mod1, mod2, cache, waive_modules, only_modules)
@@ -809,22 +857,10 @@ def detect_fd_signals(connections, adjacency, max_fd_num, logger, waive_modules=
                         fd_modules[fd_module_name] = FDModule(fd_module_name)
                     
                     # Determine from/to based on path order
+                    # path = [src, int1, int2, ..., dst]
+                    # intermediate_modules = [int1, int2, ...]
+                    # For FD module at position idx: receives from path[idx], sends to path[idx+2]
                     idx = intermediate_modules.index(fd_module_name)
-                    from_module = path[idx]
-                    to_module = path[idx + 2] if idx + 2 < len(path) else path[-1]
-                    
-                    # Actually, we need to find the adjacent modules in the path
-                    from_module = path[idx]
-                    to_module = path[idx + 2] if idx + 2 < len(path) else None
-                    
-                    # For FD module at position idx in intermediate_modules,
-                    # it receives from path[idx] and sends to path[idx+2]
-                    # But path is [src, int1, int2, ..., dst]
-                    # intermediate_modules is [int1, int2, ...]
-                    # So for int1 (idx=0): from=path[0]=src, to=path[2]=int2
-                    # For int2 (idx=1): from=path[1]=int1, to=path[3]=int3 or dst
-                    
-                    # Let me recalculate
                     full_path_idx = idx + 1  # Position in full path
                     from_module = path[full_path_idx - 1]
                     to_module = path[full_path_idx + 1]
@@ -842,7 +878,7 @@ def detect_fd_signals(connections, adjacency, max_fd_num, logger, waive_modules=
                 # Build path report line
                 path_line = build_path_line(
                     signal_name, path, intermediate_modules,
-                    case_style, is_bidir, adjacency, logger
+                    case_style, is_bidir, connections, logger
                 )
                 path_report_lines.append(path_line)
                 
@@ -860,12 +896,21 @@ def detect_fd_signals(connections, adjacency, max_fd_num, logger, waive_modules=
     return fd_signals, fd_modules, path_report_lines, errors
 
 
-def build_path_line(signal_name, path, intermediate_modules, case_style, is_bidir, adjacency, logger):
+def build_path_line(signal_name, path, intermediate_modules, case_style, is_bidir, connections, logger):
     """
     Build a single line for the path report.
     
     Format:
-        A.signal -> C.fd_signal_from_a -> C.fd_signal_to_b -> B.signal
+        A.port -> C.fd_signal_from_a -> C.fd_signal_to_b -> B.port
+    
+    Args:
+        signal_name: signal name
+        path: module path list
+        intermediate_modules: list of intermediate FD modules
+        case_style: 'upper' or 'lower'
+        is_bidir: is bidirectional signal
+        connections: list of SignalConnection (for extracting actual port names)
+        logger: logger instance
     
     Returns:
         str: path line
@@ -876,16 +921,32 @@ def build_path_line(signal_name, path, intermediate_modules, case_style, is_bidi
     segments = []
     arrow = "<->" if is_bidir else "->"
     
-    # Start: first module's port
-    # We need to find the port name from connections
-    # For simplicity, use signal name as port name for endpoints
-    start_port = signal_name
-    if case_style == 'upper':
-        start_port = signal_name.upper()
-    else:
-        start_port = signal_name.lower()
+    # Extract actual port names from connections for endpoints
+    start_port_name = signal_name
+    end_port_name = signal_name
     
-    segments.append("{}.{}".format(path[0], start_port))
+    if connections:
+        # Find port name for start module (path[0])
+        for conn in connections:
+            if conn.signal_name == signal_name and conn.module_name == path[0]:
+                start_port_name = conn.port_name
+                break
+        
+        # Find port name for end module (path[-1])
+        for conn in connections:
+            if conn.signal_name == signal_name and conn.module_name == path[-1]:
+                end_port_name = conn.port_name
+                break
+    
+    # Apply case style to port names
+    if case_style == 'upper':
+        start_port = "{}.{}".format(path[0], start_port_name.upper())
+        end_port = "{}.{}".format(path[-1], end_port_name.upper())
+    else:
+        start_port = "{}.{}".format(path[0], start_port_name.lower())
+        end_port = "{}.{}".format(path[-1], end_port_name.lower())
+    
+    segments.append(start_port)
     
     # FD modules
     for idx, fd_module in enumerate(intermediate_modules):
@@ -935,14 +996,8 @@ def build_path_line(signal_name, path, intermediate_modules, case_style, is_bidi
                 )
                 segments.append("{}.{}".format(fd_module, port_name))
     
-    # End: last module's port
-    end_port = signal_name
-    if case_style == 'upper':
-        end_port = signal_name.upper()
-    else:
-        end_port = signal_name.lower()
-    
-    segments.append("{}.{}".format(path[-1], end_port))
+    # End: last module's port (already computed above with actual port name)
+    segments.append(end_port)
     
     return " {} ".format(arrow).join(segments)
 

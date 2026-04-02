@@ -1,10 +1,19 @@
 # FD Generator - 需求规格说明书
 
 **项目:** SoC 顶层 Feedthrough 自动生成工具  
-**版本:** v1.0.0  
-**日期:** 2026-04-02  
+**版本:** v1.1.0  
+**日期:** 2026-04-02（2026-04-02 更新）  
 **Author:** Crow (Konoha Ninja)  
 **GitHub:** https://github.com/lansongfu/fd_gen
+
+---
+
+## 📝 更新日志
+
+| 版本 | 日期 | 更新内容 |
+|------|------|---------|
+| v1.1.0 | 2026-04-02 | 新增 `-link/-waive/-only/-autocase` 参数，修复双向信号处理，优化 TOP 连接逻辑 |
+| v1.0.0 | 2026-04-01 | 初始版本，记录需求讨论结果 |
 
 ---
 
@@ -26,17 +35,23 @@
 | `-floorplan` | ✅ | - | 相邻关系文件（每行：`模块名 相邻模块 1 相邻模块 2 ...`） |
 | `-output` | ❌ | `fd_output/` | 输出目录 |
 | `-maxfdnum` | ❌ | `3` | 最大允许穿过的中间模块数量 |
+| `-link` | ❌ | `false` | 生成 `fd_top.v`，修改 CONNECT 注释（v1.1.0 新增） |
+| `-waive` | ❌ | - | Waive 文件，排除模块（v1.1.0 新增） |
+| `-only` | ❌ | - | Only 文件，白名单模块（v1.1.0 新增） |
+| `-autocase` | ❌ | `false` | 保留信号大小写（v1.1.0 新增） |
 | `-h/--help` | ❌ | - | 显示帮助信息 |
+| `-version` | ❌ | - | 显示版本号 |
 
 ### 输出文件
 
 ```
 fd_output/
 ├── fd_modules/
-│   ├── FD_CORE_CRG.v
-│   ├── FD_MODULE1.v
+│   ├── fd_module1.v        # 注意：文件名小写（v1.1.0 变更）
+│   ├── fd_module2.v
 │   └── ...
-├── fd_path_report.txt
+├── fd_path_report.txt       # 使用实际端口名（v1.1.0 变更）
+├── fd_top.v                 # 仅当 -link 启用时生成（v1.1.0 新增）
 └── fd_generator.log
 ```
 
@@ -205,18 +220,59 @@ A.arready <-> C.FD_ARREADY_FROM_A <-> C.FD_ARREADY_TO_D <-> D.FD_ARREADY_FROM_C 
 
 ## ⚠️ 边界情况处理
 
-| 边界情况 | 处理方式 |
-|---------|---------|
-| **位宽不一致** | WARNING，以声明位宽为准 |
-| **悬空/固定值** | 跳过，不处理 |
-| **信号拼接** | 拆分为独立信号分别处理 |
-| **直接相邻** | 不需要 FD，直接连线 |
-| **无路径** | ERROR，该信号报错，继续处理其他 |
-| **路径超长** | ERROR（中间模块数 > maxfdnum），继续处理其他 |
-| **自连接** | 跳过，不需要 FD |
-| **一对多信号** | 每个 (源，宿) 对独立 FD 路径 |
-| **双向信号 (b)** | 全程 inout，简单 assign 直连 |
-| **顶层连接** | 顶层本身不需要 FD 模块 |
+| 边界情况 | 处理方式 | 版本 |
+|---------|---------|------|
+| **位宽不一致** | WARNING，以第一个 CONNECT 声明的位宽为准（v1.1.0 明确） | v1.1.0 |
+
+**位宽优先级说明（v1.1.0 明确）：**
+
+当信号名位宽（如 `sig[31:0]`）与 CONNECT 声明位宽不一致时，**以第一个 CONNECT 的位宽为准**。
+
+**原因：**
+1. CONNECT 的位宽是显式声明的
+2. 第一个 CONNECT 通常是信号源端的声明
+3. 保持一致性，避免不同模块使用不同位宽
+
+**示例：**
+```verilog
+//CONNECT(w, sig[31:0], U_A`out, 32, o);  // 使用 32
+//CONNECT(w, sig[15:0], U_B`in, 16, i);   // WARNING: 位宽不一致 (32 vs 16)
+// 最终 FD 模块使用 32 位宽
+```
+| **悬空/固定值** | 跳过，不处理 | v1.0.0 |
+| **信号拼接** | 拆分为独立信号分别处理 | v1.0.0 |
+| **直接相邻** | 不需要 FD，直接连线 | v1.0.0 |
+| **无路径** | ERROR，该信号报错，继续处理其他 | v1.0.0 |
+| **路径超长** | ERROR（中间模块数 > maxfdnum），继续处理其他 | v1.0.0 |
+| **自连接** | 跳过，不需要 FD | v1.0.0 |
+| **一对多信号** | 每个 (源，宿) 对独立 FD 路径 | v1.0.0 |
+| **双向信号 (b)** | **完全跳过，不生成 FD**（v1.1.0 设计决策） | v1.1.0 |
+
+**双向信号处理说明（v1.1.0 设计决策）：**
+
+双向信号（`direction='b'`）需要三态门（tri-state buffer）处理，涉及方向控制逻辑，超出了 FD 工具的简单串线范围。
+
+**处理方式：**
+- 检测到双向信号时，直接跳过，不生成任何 FD 模块
+- 日志记录：`"Signal 'xxx': bidirectional signal, skipping FD (per v1.1.0 design decision)."`
+- 用户需要手动处理双向信号的 FD 逻辑
+
+**原因：**
+1. 双向信号需要方向控制（OE 信号）
+2. 三态门逻辑复杂，容易出错
+3. 不同设计风格的三态门实现不同
+4. 安全起见，让用户手动处理更可靠
+
+**示例：**
+```verilog
+// CONNECT 中 direction='b' 的信号
+//CONNECT(b, bidir_sig, U_MODULE1`io, 8, b);
+
+// 脚本会跳过此信号，不生成 FD 模块
+// 用户需要手动创建 FD 模块并添加三态门逻辑
+```
+| **顶层连接** | 顶层本身不需要 FD 模块，通过相邻模块 FD 连接 | v1.1.0 |
+| **多驱动信号** | ERROR（多个 output），跳过该信号 | v1.1.0 |
 
 ---
 
@@ -302,13 +358,187 @@ fd_gen/
 
 | 阶段 | 内容 | 交付物 | 状态 |
 |------|------|--------|------|
-| Phase 1 | 解析器（INSTANCE + CONNECT）+ 数据结构 | 可解析输入 | ⏳ |
-| Phase 2 | floorplan 解析 + BFS 算法 + FD 检测 | FD 路径检测完成 | ⏳ |
-| Phase 3 | Verilog 代码生成 | FD 模块输出 | ⏳ |
-| Phase 4 | Path Report 生成 | fd_path_report.txt | ⏳ |
-| Phase 5 | 日志 + 错误处理 | fd_generator.log | ⏳ |
-| Phase 6 | 完整测试 + 调试 | 测试通过 | ⏳ |
-| Phase 7 | GitHub 推送 + 文档 | 仓库发布 | ⏳ |
+| Phase 1 | 解析器（INSTANCE + CONNECT）+ 数据结构 | 可解析输入 | ✅ |
+| Phase 2 | floorplan 解析 + BFS 算法 + FD 检测 | FD 路径检测完成 | ✅ |
+| Phase 3 | Verilog 代码生成 | FD 模块输出 | ✅ |
+| Phase 4 | Path Report 生成 | fd_path_report.txt | ✅ |
+| Phase 5 | 日志 + 错误处理 | fd_generator.log | ✅ |
+| Phase 6 | 完整测试 + 调试 | 测试通过 | ✅ |
+| Phase 7 | GitHub 推送 + 文档 | 仓库发布 | ✅ |
+| Phase 8 | v1.1.0 新功能 | -link/-waive/-only/-autocase | ✅ |
+
+---
+
+## 🔧 v1.1.0 新增功能详解
+
+### 1. `-link` 参数
+
+**功能：** 生成 `fd_top.v`，修改 CONNECT 注释以反映 FD 连接
+
+**实现：**
+- 复制 `top.v` → `fd_top.v`
+- 修改起始模块的 CONNECT（wire 名改为 FD 端口名）
+- 为中间 FD 模块添加新的 CONNECT
+
+**示例：**
+```verilog
+// 原始 top.v
+//CONNECT(w, clk, U_CORE_CRG`clk_out, 1, o);
+
+// fd_top.v（修改后）
+//CONNECT(w, fd_clk_from_core_crg, U_CORE_CRG`clk_out, 1, o);
+//CONNECT(w, fd_clk_from_core_crg, U_MODULE1`fd_from_core_crg_clk, 1, i);
+```
+
+### 2. `-waive` 参数
+
+**功能：** 排除指定模块，不在这些模块中生成 FD
+
+**文件格式：** 空格分隔的模块名列表
+
+**示例：**
+```txt
+# waive.txt
+MODULE1 MODULE3
+```
+
+**优先级：** `-only` > `-waive`（同时使用时 waive 被忽略）
+
+### 3. `-only` 参数
+
+**功能：** 仅允许指定模块生成 FD（白名单）
+
+**文件格式：** 空格分隔的模块名列表
+
+**示例：**
+```txt
+# only.txt
+MODULE2
+```
+
+### 4. `-autocase` 参数
+
+**功能：** 根据信号名大小写决定 FD 端口命名风格
+
+**规则：**
+- 全小写信号 → 全小写端口（`fd_from_a_clk`）
+- 全大写/混合信号 → 全大写端口（`FD_FROM_A_CLK`）
+
+**默认：** 不使用 `-autocase` 时，全部使用小写
+
+### 5. 双向信号处理（变更）
+
+**v1.0.0 需求：** "双向信号全程 inout，简单 assign 直连"
+
+**v1.1.0 变更：** **完全跳过双向信号，不生成 FD**
+
+**原因：** 双向信号需要三态门处理，超出 FD 工具范围
+
+**实现：**
+```python
+if any(c.direction == 'b' for c in conns):
+    logger.info("Signal '{}': bidirectional signal, skipping FD.".format(signal_name))
+    continue
+```
+
+### 6. TOP 连接优化
+
+**功能：** 正确处理顶层连接（TOP 作为虚拟模块）
+
+**实现：**
+- 提取 `_find_path_to_top()` 和 `_find_path_from_top()` 函数
+- TOP 本身不需要 FD 模块
+- 信号通过 TOP 相邻模块的 FD 连接到 TOP
+
+### 7. Path Report 端口名（修复）
+
+**v1.0.0 问题：** 使用信号名而非实际端口名
+
+**v1.1.0 修复：** 从 `connections` 提取实际端口名
+
+**示例：**
+```
+# Before
+A.wire1 -> C.fd_wire1_from_a -> B.wire1
+
+# After
+A.clk_out -> C.fd_clk_from_a -> B.clk_in
+```
+
+### 8. FD 模块文件名（变更）
+
+**v1.0.0：** `FD_MODULE1.v`（大写）
+
+**v1.1.0：** `fd_module1.v`（小写）
+
+**原因：** Verilog 文件名通常小写，避免大小写敏感问题
+
+---
+
+## ❓ 待确认问题
+
+### 1. 位宽优先级
+
+**当前实现：** 使用第一个 CONNECT 的位宽
+
+**需求描述：** "以声明位宽为准"
+
+**问题：** "声明位宽"指什么？
+- 第一个 CONNECT 的位宽？✅ 当前实现
+- 信号本身的位宽（从信号名解析）？
+- CONNECT 和信号名位宽不一致时以哪个为准？
+
+**建议：** 明确为"以第一个 CONNECT 的位宽为准"
+
+### 2. 双向信号处理
+
+**v1.0.0 需求：** "全程 inout，简单 assign 直连"
+
+**v1.1.0 实现：** 完全跳过
+
+**问题：** 是否需要重新确认需求？
+- 如果双向信号需要 FD，应该生成三态门逻辑
+- 当前跳过是最安全的处理方式
+
+**建议：** 确认双向信号是否真的需要 FD
+
+### 3. 一对多信号处理
+
+**当前实现：** 每个 (源，宿) 无序对独立处理
+
+**示例：**
+```
+信号 wire1：A→B 和 A→C
+- A→B 路径：生成 FD
+- A→C 路径：生成 FD
+```
+
+**问题：** 是否需要特殊处理？
+- 当前处理正确
+- 但 FD 模块中会有多个端口对
+
+**建议：** 确认当前处理符合预期
+
+### 4. TOP 连接的 direction
+
+**问题：** TOP 连接的 CONNECT 的 direction 是什么？
+- `i`：顶层输入（信号从子模块流向 TOP）
+- `o`：顶层输出（信号从 TOP 流向子模块）
+- `b`：顶层 inout（双向）
+
+**当前实现：** 根据 direction 判断信号流向
+
+**建议：** 确认 TOP 连接的 direction 使用规则
+
+### 5. 多驱动检测
+
+**当前实现：** 检测多个 `direction='o'` 且 `is_top=False` 的连接
+
+**问题：**
+- 如果一个是 TOP output，一个是子模块 output，是否算多驱动？
+- 当前排除 TOP 连接
+
+**建议：** 确认多驱动检测规则
 
 ---
 
