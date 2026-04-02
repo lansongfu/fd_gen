@@ -1006,7 +1006,7 @@ def generate_path_report(path_lines, output_dir, logger):
     logger.info("Generated: {}".format(report_path))
 
 
-def generate_fd_top(top_file, fd_signals, output_dir, logger, autocase=False):
+def generate_fd_top(top_file, fd_signals, output_dir, logger, autocase=False, connections=None):
     """
     Generate fd_top.v with updated CONNECT comments.
     
@@ -1016,6 +1016,7 @@ def generate_fd_top(top_file, fd_signals, output_dir, logger, autocase=False):
         output_dir: output directory path
         logger: logger instance
         autocase: whether to preserve signal case
+        connections: list of SignalConnection (for finding output modules)
     """
     logger.info("Generating fd_top.v...")
     
@@ -1051,8 +1052,19 @@ def generate_fd_top(top_file, fd_signals, output_dir, logger, autocase=False):
             else:
                 return "fd_{}_{}_{}".format(prefix.lower(), mod.lower(), sig.lower())
         
-        # Start module (modify existing CONNECT)
-        start_module = path[0]
+        # Find the actual start module (the one with output direction)
+        # path[0] may not be the driver - we need to find which module has 'o' direction
+        start_module = None
+        if connections:
+            for conn in connections:
+                if conn.signal_name == signal and conn.direction == 'o' and conn.module_name in path:
+                    start_module = conn.module_name
+                    break
+        
+        # If no output found, use path[0] as fallback
+        if start_module is None:
+            start_module = path[0]
+        
         start_wire = get_port_name(signal, start_module, 'from')
         module_connects[start_module].append({
             'type': 'modify',
@@ -1340,7 +1352,7 @@ Output:
     
     # Generate fd_top.v if -link is enabled
     if args.link:
-        generate_fd_top(args.top, fd_signals, args.output, logger, args.autocase)
+        generate_fd_top(args.top, fd_signals, args.output, logger, args.autocase, connections)
     
     # Summary
     logger.info("=" * 60)
