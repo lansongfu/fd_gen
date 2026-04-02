@@ -43,6 +43,7 @@ python fd_generator.py \
     -output fd_output/ \            # 输出目录（可选，默认：fd_output/）
     -maxfdnum 3 \                   # 最大中间模块数（可选，默认：3）
     -waive waive.txt \              # Waive 文件（可选，排除指定模块）
+    -only only.txt \                # Only 文件（可选，只允许指定模块）
     -autocase \                     # 保留信号大小写（可选，默认全小写）
     -h                              # 显示帮助
 ```
@@ -121,6 +122,29 @@ MODULE1 MODULE3 MODULE5
 - 强制信号绕开特定区域
 - 优化时序路径
 
+### 限制模块（-only）
+
+指定**只有**某些模块允许用于 FD 穿线（白名单）：
+
+```bash
+python fd_generator.py -top top.v -floorplan adj.txt -only only_modules.txt
+```
+
+**only 文件格式：**
+```txt
+# 模块名空格分隔，支持多行
+MODULE1 MODULE2
+```
+
+**应用场景：**
+- 只允许特定区域插入 FD
+- 限制 FD 模块位置
+- 与时序约束配合
+
+**优先级规则：**
+- `-only` 优先级高于 `-waive`
+- 同时使用时，`-waive` 被忽略
+
 ### 大小写保留（-autocase）
 
 控制 FD 端口命名的大小写风格：
@@ -156,8 +180,8 @@ fd_to_<module>_<signal>
 ```
 fd_output/
 ├── fd_modules/
-│   ├── FD_CORE_CRG.v
-│   ├── FD_MODULE1.v
+│   ├── fd_core_crg.v
+│   ├── fd_module1.v
 │   └── ...
 ├── fd_path_report.txt
 └── fd_generator.log
