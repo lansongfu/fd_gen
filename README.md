@@ -225,9 +225,9 @@ python3 ../fd_generator.py -top sample_top.v -floorplan sample_floorplan.txt -ou
 
 ## 📞 联系
 
-**作者：** 克劳（木叶村火影助理）  
+**Author:** Crow (Konoha Ninja)  
 **GitHub：** https://github.com/lansongfu/fd_gen
 
 ---
 
-**🍃 木叶村出品，必属精品！**
+**Quality Guaranteed!**

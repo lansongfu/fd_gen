@@ -3,7 +3,7 @@
 **项目:** SoC 顶层 Feedthrough 自动生成工具  
 **版本:** v1.0.0  
 **日期:** 2026-04-02  
-**作者:** 克劳 (木叶村火影助理)  
+**Author:** Crow (Konoha Ninja)  
 **GitHub:** https://github.com/lansongfu/fd_gen
 
 ---
@@ -351,9 +351,9 @@ fd_gen/
 ## 📞 联系方式
 
 **项目讨论:** QQ 私聊  
-**火影:** E6D2F83F24DA26F8BA8073FD702D91F2  
-**克劳:** 木叶村火影助理
+**Hokage (User):** E6D2F83F24DA26F8BA8073FD702D91F2  
+**Assistant:** Crow
 
 ---
 
-**🍃 木叶村出品，必属精品！**
+**Quality Guaranteed!**

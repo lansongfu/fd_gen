@@ -9,7 +9,7 @@ intermediate FD modules based on floorplan adjacency.
 Usage:
     python fd_generator.py -top <top.v> -floorplan <adjacency.txt> [-output fd_output/] [-maxfdnum 3]
 
-Author: 克劳 (木叶村火影助理)
+Author: Konoha Ninja (Crow)
 Version: 1.0.0
 """
 
