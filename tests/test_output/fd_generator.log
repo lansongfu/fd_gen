@@ -1,0 +1,28 @@
+2026-04-02 11:48:59 - INFO - ============================================================
+2026-04-02 11:48:59 - INFO - FD Generator v1.0.0
+2026-04-02 11:48:59 - INFO - ============================================================
+2026-04-02 11:48:59 - INFO - Top file: tests/sample_top.v
+2026-04-02 11:48:59 - INFO - Floorplan: tests/sample_floorplan.txt
+2026-04-02 11:48:59 - INFO - Output directory: tests/test_output
+2026-04-02 11:48:59 - INFO - Max FD modules: 3
+2026-04-02 11:48:59 - INFO - ============================================================
+2026-04-02 11:48:59 - INFO - Parsing floorplan: tests/sample_floorplan.txt
+2026-04-02 11:48:59 - INFO - Floorplan parsed: 4 modules
+2026-04-02 11:48:59 - INFO - Parsing top file: tests/sample_top.v
+2026-04-02 11:48:59 - DEBUG - Found SOC_IGT comment block start at line 12
+2026-04-02 11:48:59 - DEBUG - Found SOC_IGT comment block end at line 34
+2026-04-02 11:48:59 - INFO - Top file parsed: 4 modules, 14 connections
+2026-04-02 11:48:59 - INFO - Detecting FD signals...
+2026-04-02 11:48:59 - INFO - FD detection complete: 9 signals require FD
+2026-04-02 11:48:59 - INFO - Generating FD modules...
+2026-04-02 11:48:59 - INFO - Generated: tests/test_output/fd_modules/FD_MODULE2.v
+2026-04-02 11:48:59 - INFO - Generated: tests/test_output/fd_modules/FD_MODULE1.v
+2026-04-02 11:48:59 - INFO - Generating path report...
+2026-04-02 11:48:59 - INFO - Generated: tests/test_output/fd_path_report.txt
+2026-04-02 11:48:59 - INFO - ============================================================
+2026-04-02 11:48:59 - INFO - Summary:
+2026-04-02 11:48:59 - INFO -   Total signals requiring FD: 9
+2026-04-02 11:48:59 - INFO -   FD modules generated: 2
+2026-04-02 11:48:59 - INFO -   Errors: 0
+2026-04-02 11:48:59 - INFO - ============================================================
+2026-04-02 11:48:59 - INFO - Processing completed successfully

@@ -102,14 +102,20 @@ class FDPort:
         self.width = width
         self.is_bidir = is_bidir
     
-    def get_port_name(self, case_style):
-        """Generate port name based on case style."""
-        if case_style == 'upper':
-            if self.is_bidir:
+    def get_port_key(self):
+        """Generate unique key for deduplication."""
+        case_style = get_case_style(self.signal_name)
+        if self.is_bidir:
+            if case_style == 'upper':
                 return "FD_{}_FROM_{}".format(
                     self.signal_name.upper(), self.from_module.upper()
                 )
             else:
+                return "fd_{}_from_{}".format(
+                    self.signal_name.lower(), self.from_module.lower()
+                )
+        else:
+            if case_style == 'upper':
                 return [
                     "FD_{}_FROM_{}".format(
                         self.signal_name.upper(), self.from_module.upper()
@@ -118,11 +124,6 @@ class FDPort:
                         self.signal_name.upper(), self.to_module.upper()
                     )
                 ]
-        else:  # lower
-            if self.is_bidir:
-                return "fd_{}_from_{}".format(
-                    self.signal_name.lower(), self.from_module.lower()
-                )
             else:
                 return [
                     "fd_{}_from_{}".format(
@@ -139,8 +140,23 @@ class FDModule:
     def __init__(self, module_name):
         self.module_name = module_name
         self.ports = []  # List of FDPort
+        self._port_keys = set()  # For deduplication
     
     def add_port(self, port):
+        """Add port with deduplication."""
+        key = port.get_port_key()
+        if isinstance(key, list):
+            # Unidirectional: check both from and to ports
+            for k in key:
+                if k in self._port_keys:
+                    return  # Skip duplicate
+                self._port_keys.add(k)
+        else:
+            # Bidirectional: check single key
+            if key in self._port_keys:
+                return  # Skip duplicate
+            self._port_keys.add(key)
+        
         self.ports.append(port)
 
 
@@ -342,20 +358,20 @@ def parse_connect(line, line_num, logger):
                     signal_name=sig_name,
                     module_name=module_name,
                     port_name=port_name,
-                    width=sig_width,
+                    width=width,  # Use declared width from CONNECT
                     direction=direction,
                     is_top=is_top
                 ))
         elif wire_name and not wire_name.startswith("'"):
             # Regular signal (not empty, not fixed value)
-            # Extract signal name and width from bit selection
-            sig_name, sig_width = parse_signal_name(wire_name)
+            # Extract signal name from bit selection
+            sig_name, _ = parse_signal_name(wire_name)
             if sig_name:
                 connections.append(SignalConnection(
                     signal_name=sig_name,
                     module_name=module_name,
                     port_name=port_name,
-                    width=sig_width,
+                    width=width,  # Use declared width from CONNECT
                     direction=direction,
                     is_top=is_top
                 ))
