@@ -580,6 +580,10 @@ def bfs_shortest_path(adjacency, src, dst, cache, waive_modules=None, only_modul
         current, path = queue.pop(0)
         
         for neighbor in adjacency.get(current, []):
+            # Skip TOP module (cannot place FD on TOP)
+            if neighbor == 'TOP':
+                continue
+            
             # Skip waived modules (but allow src/dst even if waived)
             if neighbor in waive_modules and neighbor != src and neighbor != dst:
                 continue
@@ -1052,26 +1056,43 @@ def generate_fd_top(top_file, fd_signals, output_dir, logger, autocase=False, co
             else:
                 return "fd_{}_{}_{}".format(prefix.lower(), mod.lower(), sig.lower())
         
-        # Find the actual start module (the one with output direction)
-        # path[0] may not be the driver - we need to find which module has 'o' direction
+        # Find the actual start module
+        # Priority: non-TOP end > output direction > path[0]
         start_module = None
-        if connections:
-            for conn in connections:
-                if conn.signal_name == signal and conn.direction == 'o' and conn.module_name in path:
-                    start_module = conn.module_name
-                    break
         
-        # If no output found, use path[0] as fallback
-        if start_module is None:
+        # If one end is TOP, use the other end as start
+        if path[0] == 'TOP' and len(path) > 1:
+            start_module = path[1]
+        elif path[-1] == 'TOP' and len(path) > 1:
             start_module = path[0]
+        else:
+            # Find module with output direction
+            if connections:
+                for conn in connections:
+                    if conn.signal_name == signal and conn.direction == 'o' and conn.module_name in path:
+                        start_module = conn.module_name
+                        break
+            
+            # Fallback to path[0]
+            if start_module is None:
+                start_module = path[0]
         
         start_wire = get_port_name(signal, start_module, 'from')
+        
+        # Determine direction from connections
+        conn_dir = 'o'  # default
+        if connections:
+            for conn in connections:
+                if conn.signal_name == signal and conn.module_name == start_module:
+                    conn_dir = conn.direction
+                    break
+        
         module_connects[start_module].append({
             'type': 'modify',
             'old_wire': signal,
             'new_wire': start_wire,
             'width': width,
-            'direction': 'o'
+            'direction': conn_dir
         })
         
         # Intermediate modules (append CONNECTs)
@@ -1134,17 +1155,17 @@ def generate_fd_top(top_file, fd_signals, output_dir, logger, autocase=False, co
         
         # Process modify connects first
         for conn in modify_connects:
-            # Modify existing CONNECT with exact wire name and direction match
+            # Modify existing CONNECT with exact wire name match
             for idx in range(connect_start, connect_end):
                 line = lines[idx]
                 # Parse CONNECT to extract wire name and direction
-                # Format: //CONNECT(w, wire_name, U_MOD`port, width, dir);
+                # Format: //CONNECT(w/i/o/b, wire_name, U_MOD`port, width, dir);
                 match = re.search(r'//CONNECT\([^,]+,\s*(\w+),\s*[^,]+,\s*[^,]*,\s*(\w+)\s*\)', line)
                 if match:
                     existing_wire = match.group(1)
                     existing_dir = match.group(2)
-                    # Only modify if wire matches AND direction matches 'o' (output)
-                    if existing_wire == conn['old_wire'] and existing_dir == conn['direction']:
+                    # Modify if wire matches (direction check relaxed for TOP connections)
+                    if existing_wire == conn['old_wire']:
                         new_line = line.replace(
                             ", " + conn['old_wire'] + ",",
                             ", " + conn['new_wire'] + ","
