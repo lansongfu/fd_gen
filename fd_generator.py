@@ -95,42 +95,43 @@ class ModuleInfo:
 
 class FDPort:
     """Represents an FD module port."""
-    def __init__(self, signal_name, from_module, to_module, width, is_bidir=False):
+    def __init__(self, signal_name, from_module, to_module, width, is_bidir=False, autocase=False):
         self.signal_name = signal_name
         self.from_module = from_module
         self.to_module = to_module
         self.width = width
         self.is_bidir = is_bidir
+        self.autocase = autocase
     
     def get_port_key(self):
         """Generate unique key for deduplication."""
-        case_style = get_case_style(self.signal_name)
+        case_style = get_case_style(self.signal_name, self.autocase)
         if self.is_bidir:
             if case_style == 'upper':
-                return "FD_{}_FROM_{}".format(
-                    self.signal_name.upper(), self.from_module.upper()
+                return "FD_FROM_{}_{}".format(
+                    self.from_module.upper(), self.signal_name.upper()
                 )
             else:
-                return "fd_{}_from_{}".format(
-                    self.signal_name.lower(), self.from_module.lower()
+                return "fd_from_{}_{}".format(
+                    self.from_module.lower(), self.signal_name.lower()
                 )
         else:
             if case_style == 'upper':
                 return [
-                    "FD_{}_FROM_{}".format(
-                        self.signal_name.upper(), self.from_module.upper()
+                    "FD_FROM_{}_{}".format(
+                        self.from_module.upper(), self.signal_name.upper()
                     ),
-                    "FD_{}_TO_{}".format(
-                        self.signal_name.upper(), self.to_module.upper()
+                    "FD_TO_{}_{}".format(
+                        self.to_module.upper(), self.signal_name.upper()
                     )
                 ]
             else:
                 return [
-                    "fd_{}_from_{}".format(
-                        self.signal_name.lower(), self.from_module.lower()
+                    "fd_from_{}_{}".format(
+                        self.from_module.lower(), self.signal_name.lower()
                     ),
-                    "fd_{}_to_{}".format(
-                        self.signal_name.lower(), self.to_module.lower()
+                    "fd_to_{}_{}".format(
+                        self.to_module.lower(), self.signal_name.lower()
                     )
                 ]
 
@@ -490,19 +491,28 @@ def parse_signal_name(wire_name):
     return sig_name, width
 
 
-def get_case_style(signal_name):
+def get_case_style(signal_name, autocase=False):
     """
     Determine case style for FD port naming.
     
+    Args:
+        signal_name: original signal name
+        autocase: if True, preserve case based on signal; if False, always lowercase
+    
     Returns:
-        'upper' if signal is all uppercase or mixed case
-        'lower' if signal is all lowercase
+        'upper' if autocase enabled and signal is all uppercase or mixed case
+        'lower' otherwise
     """
-    if signal_name.islower():
+    if not autocase:
+        # Default: always lowercase
         return 'lower'
     else:
-        # All uppercase or mixed case -> use uppercase
-        return 'upper'
+        # autocase enabled: preserve case based on signal
+        if signal_name.islower():
+            return 'lower'
+        else:
+            # All uppercase or mixed case -> use uppercase
+            return 'upper'
 
 # ============================================================================
 # BFS Algorithm with Caching
@@ -589,7 +599,7 @@ def bfs_shortest_path(adjacency, src, dst, cache, waive_modules=None):
 # FD Detection and Generation
 # ============================================================================
 
-def detect_fd_signals(connections, adjacency, max_fd_num, logger, waive_modules=None):
+def detect_fd_signals(connections, adjacency, max_fd_num, logger, waive_modules=None, autocase=False):
     """
     Detect signals requiring FD and compute paths.
     
@@ -599,6 +609,7 @@ def detect_fd_signals(connections, adjacency, max_fd_num, logger, waive_modules=
         max_fd_num: maximum allowed intermediate modules
         logger: logger instance
         waive_modules: set of modules to exclude from FD routing
+        autocase: whether to preserve signal case in port names
     
     Returns:
         tuple: (fd_signals, fd_modules, path_report_lines, errors)
@@ -720,7 +731,8 @@ def detect_fd_signals(connections, adjacency, max_fd_num, logger, waive_modules=
                         from_module=from_module,
                         to_module=to_module,
                         width=width,
-                        is_bidir=is_bidir
+                        is_bidir=is_bidir,
+                        autocase=autocase
                     )
                     fd_modules[fd_module_name].add_port(fd_port)
                 
@@ -779,44 +791,44 @@ def build_path_line(signal_name, path, intermediate_modules, case_style, is_bidi
         
         if case_style == 'upper':
             if is_bidir:
-                port_name = "FD_{}_FROM_{}".format(
-                    signal_name.upper(), from_module.upper()
+                port_name = "FD_FROM_{}_{}".format(
+                    from_module.upper(), signal_name.upper()
                 )
                 segments.append("{}.{}".format(fd_module, port_name))
                 
-                port_name = "FD_{}_TO_{}".format(
-                    signal_name.upper(), to_module.upper() if to_module else "UNKNOWN"
+                port_name = "FD_TO_{}_{}".format(
+                    to_module.upper() if to_module else "UNKNOWN", signal_name.upper()
                 )
                 segments.append("{}.{}".format(fd_module, port_name))
             else:
-                port_name = "FD_{}_FROM_{}".format(
-                    signal_name.upper(), from_module.upper()
+                port_name = "FD_FROM_{}_{}".format(
+                    from_module.upper(), signal_name.upper()
                 )
                 segments.append("{}.{}".format(fd_module, port_name))
                 
-                port_name = "FD_{}_TO_{}".format(
-                    signal_name.upper(), to_module.upper() if to_module else "UNKNOWN"
+                port_name = "FD_TO_{}_{}".format(
+                    to_module.upper() if to_module else "UNKNOWN", signal_name.upper()
                 )
                 segments.append("{}.{}".format(fd_module, port_name))
         else:
             if is_bidir:
-                port_name = "fd_{}_from_{}".format(
-                    signal_name.lower(), from_module.lower()
+                port_name = "fd_from_{}_{}".format(
+                    from_module.lower(), signal_name.lower()
                 )
                 segments.append("{}.{}".format(fd_module, port_name))
                 
-                port_name = "fd_{}_to_{}".format(
-                    signal_name.lower(), to_module.lower() if to_module else "unknown"
+                port_name = "fd_to_{}_{}".format(
+                    to_module.lower() if to_module else "unknown", signal_name.lower()
                 )
                 segments.append("{}.{}".format(fd_module, port_name))
             else:
-                port_name = "fd_{}_from_{}".format(
-                    signal_name.lower(), from_module.lower()
+                port_name = "fd_from_{}_{}".format(
+                    from_module.lower(), signal_name.lower()
                 )
                 segments.append("{}.{}".format(fd_module, port_name))
                 
-                port_name = "fd_{}_to_{}".format(
-                    signal_name.lower(), to_module.lower() if to_module else "unknown"
+                port_name = "fd_to_{}_{}".format(
+                    to_module.lower() if to_module else "unknown", signal_name.lower()
                 )
                 segments.append("{}.{}".format(fd_module, port_name))
     
@@ -879,28 +891,28 @@ def generate_fd_module_verilog(fd_module):
     assign_lines = []
     
     for port in fd_module.ports:
-        case_style = get_case_style(port.signal_name)
+        case_style = get_case_style(port.signal_name, port.autocase)
         
         if port.is_bidir:
             # Bidirectional port
             if case_style == 'upper':
-                port_name = "FD_{}_FROM_{}".format(
-                    port.signal_name.upper(), port.from_module.upper()
+                port_name = "FD_FROM_{}_{}".format(
+                    port.from_module.upper(), port.signal_name.upper()
                 )
             else:
-                port_name = "fd_{}_from_{}".format(
-                    port.signal_name.lower(), port.from_module.lower()
+                port_name = "fd_from_{}_{}".format(
+                    port.from_module.lower(), port.signal_name.lower()
                 )
             
             port_lines.append("    inout wire [{}:0] {}".format(port.width - 1, port_name))
             
             if case_style == 'upper':
-                port_name_to = "FD_{}_TO_{}".format(
-                    port.signal_name.upper(), port.to_module.upper()
+                port_name_to = "FD_TO_{}_{}".format(
+                    port.to_module.upper(), port.signal_name.upper()
                 )
             else:
-                port_name_to = "fd_{}_to_{}".format(
-                    port.signal_name.lower(), port.to_module.lower()
+                port_name_to = "fd_to_{}_{}".format(
+                    port.to_module.lower(), port.signal_name.lower()
                 )
             
             port_lines.append("    inout wire [{}:0] {}".format(port.width - 1, port_name_to))
@@ -908,18 +920,18 @@ def generate_fd_module_verilog(fd_module):
         else:
             # Unidirectional ports
             if case_style == 'upper':
-                from_port = "FD_{}_FROM_{}".format(
-                    port.signal_name.upper(), port.from_module.upper()
+                from_port = "FD_FROM_{}_{}".format(
+                    port.from_module.upper(), port.signal_name.upper()
                 )
-                to_port = "FD_{}_TO_{}".format(
-                    port.signal_name.upper(), port.to_module.upper()
+                to_port = "FD_TO_{}_{}".format(
+                    port.to_module.upper(), port.signal_name.upper()
                 )
             else:
-                from_port = "fd_{}_from_{}".format(
-                    port.signal_name.lower(), port.from_module.lower()
+                from_port = "fd_from_{}_{}".format(
+                    port.from_module.lower(), port.signal_name.lower()
                 )
-                to_port = "fd_{}_to_{}".format(
-                    port.signal_name.lower(), port.to_module.lower()
+                to_port = "fd_to_{}_{}".format(
+                    port.to_module.lower(), port.signal_name.lower()
                 )
             
             port_lines.append("    input  wire [{}:0] {}".format(port.width - 1, from_port))
@@ -1026,6 +1038,12 @@ Output:
         help='Waive file containing modules to exclude from FD routing (space-separated)'
     )
     parser.add_argument(
+        '-autocase',
+        action='store_true',
+        default=False,
+        help='Preserve signal case in FD port names (default: all lowercase)'
+    )
+    parser.add_argument(
         '-version',
         action='version',
         version='FD Generator v{}'.format(VERSION)
@@ -1072,6 +1090,7 @@ Output:
     logger.info("Max FD modules: {}".format(args.maxfdnum))
     if waive_modules:
         logger.info("Waived modules: {}".format(', '.join(sorted(waive_modules))))
+    logger.info("Autocase: {}".format(args.autocase))
     logger.info("=" * 60)
     
     # Parse input files
@@ -1080,7 +1099,7 @@ Output:
     
     # Detect FD signals
     fd_signals, fd_modules, path_lines, errors = detect_fd_signals(
-        connections, adjacency, args.maxfdnum, logger, waive_modules
+        connections, adjacency, args.maxfdnum, logger, waive_modules, args.autocase
     )
     
     # Generate FD modules
