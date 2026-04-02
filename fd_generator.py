@@ -627,8 +627,15 @@ def detect_fd_signals(connections, adjacency, max_fd_num, logger):
         # Determine case style from signal name
         case_style = get_case_style(signal_name)
         
-        # Get width (use first connection's width)
+        # Get width (use first connection's width) and check consistency
         width = conns[0].width
+        width_mismatch = False
+        for conn in conns[1:]:
+            if conn.width != width:
+                width_mismatch = True
+                logger.warning("Signal '{}': width mismatch - declared {} vs {} at module {}".format(
+                    signal_name, width, conn.width, conn.module_name
+                ))
         
         # Determine direction
         # If any connection is 'b', it's bidirectional
