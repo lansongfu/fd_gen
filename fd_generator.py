@@ -654,6 +654,11 @@ def detect_fd_signals(connections, adjacency, max_fd_num, logger, waive_modules=
         if len(conns) < 2:
             continue  # Need at least 2 connections
         
+        # Skip bidirectional signals (direction='b') - they require special handling
+        if any(c.direction == 'b' for c in conns):
+            logger.info("Signal '{}': bidirectional signal, skipping FD.".format(signal_name))
+            continue
+        
         # Check for multi-driver (multiple outputs, excluding TOP connections)
         output_conns = [c for c in conns if c.direction == 'o' and not c.is_top]
         if len(output_conns) > 1:
