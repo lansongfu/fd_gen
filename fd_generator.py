@@ -8,9 +8,29 @@ intermediate FD modules based on floorplan adjacency.
 
 Usage:
     python fd_generator.py -top <top.v> -floorplan <adjacency.txt> [-output fd_output/] [-maxfdnum 3]
+    python fd_generator.py -top <top.v> -floorplan <adjacency.txt> -link [-autocase] [-waive waive.txt] [-only only.txt]
 
 Author: Konoha Ninja (Crow)
-Version: 1.0.0
+Version: 1.1.0
+
+Changelog:
+  v1.1.0 (2026-04-02)
+    - Fix: fd_top.v INSTANCE regex pattern causing modify failure
+    - Fix: Skip bidirectional signals (direction='b') from FD processing
+    - Fix: TOP module support - properly handle is_top connections
+    - Add: -link parameter to generate fd_top.v with updated CONNECT comments
+    - Add: -waive parameter to exclude modules from FD routing
+    - Add: -only parameter to whitelist modules for FD routing
+    - Add: -autocase parameter to preserve signal case in port names
+    - Add: Multi-driver detection (skip signals with multiple outputs)
+    - Fix: FD module filenames now lowercase (fd_module1.v)
+    - Fix: FD port naming format (fd_from_<module>_<signal>)
+  
+  v1.0.0 (2026-04-01)
+    - Initial release
+    - Core FD detection and module generation
+    - BFS shortest path with caching
+    - Path report generation
 """
 
 from __future__ import print_function
