@@ -539,7 +539,7 @@ class BFSCache:
         self.cache[key] = path
 
 
-def bfs_shortest_path(adjacency, src, dst, cache, waive_modules=None):
+def bfs_shortest_path(adjacency, src, dst, cache, waive_modules=None, only_modules=None):
     """
     Find shortest path between src and dst modules using BFS.
     
@@ -549,12 +549,15 @@ def bfs_shortest_path(adjacency, src, dst, cache, waive_modules=None):
         dst: destination module name
         cache: BFSCache instance
         waive_modules: set of modules to exclude from routing
+        only_modules: set of modules allowed for routing
     
     Returns:
         list: [src, intermediate1, intermediate2, ..., dst] or None if no path
     """
     if waive_modules is None:
         waive_modules = set()
+    if only_modules is None:
+        only_modules = set()
     
     # Check cache first
     cached_path = cache.get(src, dst)
@@ -581,6 +584,10 @@ def bfs_shortest_path(adjacency, src, dst, cache, waive_modules=None):
             if neighbor in waive_modules and neighbor != src and neighbor != dst:
                 continue
             
+            # Skip modules not in only list (but allow src/dst even if not in only)
+            if only_modules and neighbor not in only_modules and neighbor != src and neighbor != dst:
+                continue
+            
             if neighbor == dst:
                 result = path + [neighbor]
                 cache.set(src, dst, result)
@@ -599,7 +606,7 @@ def bfs_shortest_path(adjacency, src, dst, cache, waive_modules=None):
 # FD Detection and Generation
 # ============================================================================
 
-def detect_fd_signals(connections, adjacency, max_fd_num, logger, waive_modules=None, autocase=False):
+def detect_fd_signals(connections, adjacency, max_fd_num, logger, waive_modules=None, autocase=False, only_modules=None):
     """
     Detect signals requiring FD and compute paths.
     
@@ -610,6 +617,7 @@ def detect_fd_signals(connections, adjacency, max_fd_num, logger, waive_modules=
         logger: logger instance
         waive_modules: set of modules to exclude from FD routing
         autocase: whether to preserve signal case in port names
+        only_modules: set of modules allowed for FD routing
     
     Returns:
         tuple: (fd_signals, fd_modules, path_report_lines, errors)
@@ -622,6 +630,8 @@ def detect_fd_signals(connections, adjacency, max_fd_num, logger, waive_modules=
     
     if waive_modules is None:
         waive_modules = set()
+    if only_modules is None:
+        only_modules = set()
     
     # Group connections by signal name
     signal_groups = defaultdict(list)
@@ -679,8 +689,8 @@ def detect_fd_signals(connections, adjacency, max_fd_num, logger, waive_modules=
                 if mod2 in adjacency.get(mod1, set()):
                     continue  # Direct connection, no FD needed
                 
-                # Find shortest path (excluding waived modules)
-                path = bfs_shortest_path(adjacency, mod1, mod2, cache, waive_modules)
+                # Find shortest path (excluding waived modules, respecting only modules)
+                path = bfs_shortest_path(adjacency, mod1, mod2, cache, waive_modules, only_modules)
                 
                 if path is None:
                     error_msg = "No path found between {} and {} for signal {}".format(
@@ -860,7 +870,7 @@ def generate_fd_modules(fd_modules, output_dir, logger):
         os.makedirs(fd_dir)
     
     for module_name, fd_module in fd_modules.items():
-        file_path = os.path.join(fd_dir, "FD_{}.v".format(module_name))
+        file_path = os.path.join(fd_dir, "fd_{}.v".format(module_name.lower()))
         
         with open(file_path, 'w') as f:
             f.write(generate_fd_module_verilog(fd_module))
@@ -1038,6 +1048,11 @@ Output:
         help='Waive file containing modules to exclude from FD routing (space-separated)'
     )
     parser.add_argument(
+        '-only',
+        default=None,
+        help='Only file containing modules allowed for FD routing (space-separated)'
+    )
+    parser.add_argument(
         '-autocase',
         action='store_true',
         default=False,
@@ -1060,8 +1075,9 @@ Output:
         print("Error: Floorplan file not found: {}".format(args.floorplan))
         sys.exit(1)
     
-    # Parse waive file if specified
+    # Parse waive/only files
     waive_modules = set()
+    only_modules = set()
     if args.waive:
         if not os.path.exists(args.waive):
             print("Error: Waive file not found: {}".format(args.waive))
@@ -1073,6 +1089,22 @@ Output:
                     continue
                 parts = line.split()
                 waive_modules.update(parts)
+    
+    if args.only:
+        if not os.path.exists(args.only):
+            print("Error: Only file not found: {}".format(args.only))
+            sys.exit(1)
+        with open(args.only, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                parts = line.split()
+                only_modules.update(parts)
+    
+    # -only has higher priority than -waive
+    if only_modules and args.waive:
+        waive_modules = set()  # Ignore -waive when -only is used
     
     # Create output directory
     if not os.path.exists(args.output):
@@ -1088,7 +1120,9 @@ Output:
     logger.info("Floorplan: {}".format(args.floorplan))
     logger.info("Output directory: {}".format(args.output))
     logger.info("Max FD modules: {}".format(args.maxfdnum))
-    if waive_modules:
+    if only_modules:
+        logger.info("Only modules: {}".format(', '.join(sorted(only_modules))))
+    elif waive_modules:
         logger.info("Waived modules: {}".format(', '.join(sorted(waive_modules))))
     logger.info("Autocase: {}".format(args.autocase))
     logger.info("=" * 60)
@@ -1099,7 +1133,7 @@ Output:
     
     # Detect FD signals
     fd_signals, fd_modules, path_lines, errors = detect_fd_signals(
-        connections, adjacency, args.maxfdnum, logger, waive_modules, args.autocase
+        connections, adjacency, args.maxfdnum, logger, waive_modules, args.autocase, only_modules
     )
     
     # Generate FD modules
