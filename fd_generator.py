@@ -1056,8 +1056,8 @@ def generate_fd_top(top_file, fd_signals, output_dir, logger, autocase=False, co
             else:
                 return "fd_{}_{}_{}".format(prefix.lower(), mod.lower(), sig.lower())
         
-        # Find the actual start module
-        # Priority: non-TOP end > output direction > path[0]
+        # Find the start module for this path
+        # Priority: non-TOP end > output direction in path > path[0]
         start_module = None
         
         # If one end is TOP, use the other end as start
@@ -1066,14 +1066,14 @@ def generate_fd_top(top_file, fd_signals, output_dir, logger, autocase=False, co
         elif path[-1] == 'TOP' and len(path) > 1:
             start_module = path[0]
         else:
-            # Find module with output direction
+            # Find module with output direction in the path
             if connections:
                 for conn in connections:
                     if conn.signal_name == signal and conn.direction == 'o' and conn.module_name in path:
                         start_module = conn.module_name
                         break
             
-            # Fallback to path[0]
+            # If no output in path, use path[0] (reversed path, but still need CONNECTs)
             if start_module is None:
                 start_module = path[0]
         
@@ -1101,9 +1101,9 @@ def generate_fd_top(top_file, fd_signals, output_dir, logger, autocase=False, co
             from_module = path[i - 1]
             to_module = path[i + 1]
             
-            # Wire names
+            # Wire names (signal names between modules)
             input_wire = get_port_name(signal, from_module, 'from')
-            output_wire = get_port_name(signal, fd_module, 'to')
+            output_wire = get_port_name(signal, fd_module, 'from')  # Wire from this FD module
             
             # FD module port names
             input_port = get_port_name(signal, from_module, 'from')
