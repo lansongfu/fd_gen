@@ -638,11 +638,9 @@ def detect_fd_signals(connections, adjacency, max_fd_num, logger, waive_modules=
         only_modules = set()
     
     # Group connections by signal name
+    # Include is_top connections - they indicate signals that need to reach TOP
     signal_groups = defaultdict(list)
     for conn in connections:
-        # Skip top-level connections for FD detection
-        if conn.is_top:
-            continue
         signal_groups[conn.signal_name].append(conn)
     
     fd_signals = []
@@ -656,8 +654,8 @@ def detect_fd_signals(connections, adjacency, max_fd_num, logger, waive_modules=
         if len(conns) < 2:
             continue  # Need at least 2 connections
         
-        # Check for multi-driver (multiple outputs)
-        output_conns = [c for c in conns if c.direction == 'o']
+        # Check for multi-driver (multiple outputs, excluding TOP connections)
+        output_conns = [c for c in conns if c.direction == 'o' and not c.is_top]
         if len(output_conns) > 1:
             error_msg = "Signal '{}': multi-driver detected ({} outputs: {}). Skipping.".format(
                 signal_name, len(output_conns), ', '.join([c.module_name for c in output_conns])
@@ -668,6 +666,14 @@ def detect_fd_signals(connections, adjacency, max_fd_num, logger, waive_modules=
         
         # Get unique modules connected by this signal
         modules = list(set([c.module_name for c in conns]))
+        
+        # Check if any connection goes to TOP
+        has_top = any(c.is_top for c in conns)
+        
+        # If has TOP connection, add TOP to modules list for path finding
+        if has_top and 'TOP' not in modules:
+            modules.append('TOP')
+        
         if len(modules) < 2:
             continue  # All connections to same module
         
@@ -703,8 +709,55 @@ def detect_fd_signals(connections, adjacency, max_fd_num, logger, waive_modules=
                 if mod2 in adjacency.get(mod1, set()):
                     continue  # Direct connection, no FD needed
                 
-                # Find shortest path (excluding waived modules, respecting only modules)
-                path = bfs_shortest_path(adjacency, mod1, mod2, cache, waive_modules, only_modules)
+                # If one end is TOP, find path to/from TOP-adjacent module
+                if mod2 == 'TOP':
+                    # Find path from mod1 to a TOP-adjacent module
+                    top_adjacent = adjacency.get('TOP', set())
+                    path = None
+                    for adj_module in top_adjacent:
+                        if adj_module == mod1:
+                            path = [mod1]  # Direct
+                            break
+                        if adj_module in adjacency.get(mod1, set()):
+                            path = [mod1, adj_module]  # Direct connection
+                            break
+                    
+                    if path is None:
+                        for adj_module in top_adjacent:
+                            if adj_module == mod1:
+                                continue
+                            path = bfs_shortest_path(adjacency, mod1, adj_module, cache, waive_modules, only_modules)
+                            if path:
+                                break
+                    
+                    if path:
+                        path = path + ['TOP']  # Append TOP to path
+                    
+                elif mod1 == 'TOP':
+                    # Find path from a TOP-adjacent module to mod2
+                    top_adjacent = adjacency.get('TOP', set())
+                    path = None
+                    for adj_module in top_adjacent:
+                        if adj_module == mod2:
+                            path = [mod2]  # Direct
+                            break
+                        if adj_module in adjacency.get(mod2, set()):
+                            path = [adj_module, mod2]  # Direct connection
+                            break
+                    
+                    if path is None:
+                        for adj_module in top_adjacent:
+                            if adj_module == mod2:
+                                continue
+                            path = bfs_shortest_path(adjacency, adj_module, mod2, cache, waive_modules, only_modules)
+                            if path:
+                                break
+                    
+                    if path:
+                        path = ['TOP'] + path  # Prepend TOP to path
+                else:
+                    # Regular path between two modules
+                    path = bfs_shortest_path(adjacency, mod1, mod2, cache, waive_modules, only_modules)
                 
                 if path is None:
                     error_msg = "No path found between {} and {} for signal {}".format(
@@ -714,8 +767,9 @@ def detect_fd_signals(connections, adjacency, max_fd_num, logger, waive_modules=
                     errors.append(error_msg)
                     continue
                 
-                # Check path length (intermediate modules)
-                intermediate_modules = path[1:-1]  # Exclude src and dst
+                # Check path length (excluding TOP)
+                path_without_top = [m for m in path if m != 'TOP']
+                intermediate_modules = path_without_top[1:-1]  # Exclude start and end
                 if len(intermediate_modules) > max_fd_num:
                     error_msg = "Path too long for signal {}: {} intermediate modules (max {})".format(
                         signal_name, len(intermediate_modules), max_fd_num
