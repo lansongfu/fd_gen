@@ -652,6 +652,16 @@ def detect_fd_signals(connections, adjacency, max_fd_num, logger, waive_modules=
         if len(conns) < 2:
             continue  # Need at least 2 connections
         
+        # Check for multi-driver (multiple outputs)
+        output_conns = [c for c in conns if c.direction == 'o']
+        if len(output_conns) > 1:
+            error_msg = "Signal '{}': multi-driver detected ({} outputs: {}). Skipping.".format(
+                signal_name, len(output_conns), ', '.join([c.module_name for c in output_conns])
+            )
+            logger.error(error_msg)
+            errors.append(error_msg)
+            continue  # Skip this signal
+        
         # Get unique modules connected by this signal
         modules = list(set([c.module_name for c in conns]))
         if len(modules) < 2:
