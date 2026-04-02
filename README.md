@@ -43,6 +43,7 @@ python fd_generator.py \
     -output fd_output/ \            # 输出目录（可选，默认：fd_output/）
     -maxfdnum 3 \                   # 最大中间模块数（可选，默认：3）
     -waive waive.txt \              # Waive 文件（可选，排除指定模块）
+    -autocase \                     # 保留信号大小写（可选，默认全小写）
     -h                              # 显示帮助
 ```
 
@@ -119,6 +120,34 @@ MODULE1 MODULE3 MODULE5
 - 某些模块不适合插入 FD
 - 强制信号绕开特定区域
 - 优化时序路径
+
+### 大小写保留（-autocase）
+
+控制 FD 端口命名的大小写风格：
+
+```bash
+# 默认：全部转为小写
+python fd_generator.py -top top.v -floorplan adj.txt
+
+# 加 -autocase：根据信号名大小写决定
+python fd_generator.py -top top.v -floorplan adj.txt -autocase
+```
+
+**命名规则：**
+
+| 场景 | 信号名 | FD 端口命名 |
+|------|--------|-----------|
+| 默认（无 -autocase） | `awaddr` / `AWADDR` / `AwAddr` | `fd_from_module_awaddr`（全小写） |
+| `-autocase` | `awaddr`（全小写） | `fd_from_module_awaddr`（小写） |
+| `-autocase` | `AWADDR`（全大写） | `FD_FROM_MODULE_AWADDR`（大写） |
+| `-autocase` | `AwAddr`（混合） | `FD_FROM_MODULE_AWADDR`（大写） |
+
+**端口命名格式：**
+```verilog
+// 新格式（便于集成）
+fd_from_<module>_<signal>
+fd_to_<module>_<signal>
+```
 
 ---
 
