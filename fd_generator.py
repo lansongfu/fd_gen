@@ -979,11 +979,11 @@ Examples:
 
 Output:
   fd_output/
-  ├── fd_modules/
-  │   ├── FD_MODULE1.v
-  │   └── FD_MODULE2.v
-  ├── fd_path_report.txt
-  └── fd_generator.log
+    fd_modules/
+      FD_MODULE1.v
+      FD_MODULE2.v
+    fd_path_report.txt
+    fd_generator.log
         """
     )
     
