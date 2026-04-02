@@ -996,6 +996,165 @@ def generate_path_report(path_lines, output_dir, logger):
     logger.info("Generated: {}".format(report_path))
 
 
+def generate_fd_top(top_file, fd_signals, output_dir, logger, autocase=False):
+    """
+    Generate fd_top.v with updated CONNECT comments.
+    
+    Args:
+        top_file: path to original top.v
+        fd_signals: list of FD signal dicts
+        output_dir: output directory path
+        logger: logger instance
+        autocase: whether to preserve signal case
+    """
+    logger.info("Generating fd_top.v...")
+    
+    import shutil
+    
+    # Copy top.v to fd_top.v
+    fd_top_path = os.path.join(output_dir, "fd_top.v")
+    shutil.copy(top_file, fd_top_path)
+    
+    # Read fd_top.v lines
+    with open(fd_top_path, 'r') as f:
+        lines = f.readlines()
+    
+    # Build module -> connects mapping
+    module_connects = defaultdict(list)
+    
+    for fd_sig in fd_signals:
+        path = fd_sig['path']
+        signal = fd_sig['signal']
+        width = fd_sig['width']
+        is_bidir = fd_sig['is_bidir']
+        
+        if len(path) < 2:
+            continue
+        
+        # Determine case style
+        case_style = get_case_style(signal, autocase)
+        
+        # Helper to get port name
+        def get_port_name(sig, mod, prefix):
+            if case_style == 'upper':
+                return "FD_{}_{}_{}".format(prefix.upper(), mod.upper(), sig.upper())
+            else:
+                return "fd_{}_{}_{}".format(prefix.lower(), mod.lower(), sig.lower())
+        
+        # Start module (modify existing CONNECT)
+        start_module = path[0]
+        start_wire = get_port_name(signal, start_module, 'from')
+        module_connects[start_module].append({
+            'type': 'modify',
+            'old_wire': signal,
+            'new_wire': start_wire,
+            'width': width,
+            'direction': 'o'
+        })
+        
+        # Intermediate modules (append CONNECTs)
+        for i in range(1, len(path) - 1):
+            fd_module = path[i]
+            from_module = path[i - 1]
+            to_module = path[i + 1]
+            
+            # Wire names
+            input_wire = get_port_name(signal, from_module, 'from')
+            output_wire = get_port_name(signal, fd_module, 'to')
+            
+            # FD module port names
+            input_port = get_port_name(signal, from_module, 'from')
+            output_port = get_port_name(signal, to_module, 'to')
+            
+            module_connects[fd_module].append({
+                'type': 'append',
+                'wire': input_wire,
+                'port': input_port,
+                'width': width,
+                'direction': 'i'
+            })
+            module_connects[fd_module].append({
+                'type': 'append',
+                'wire': output_wire,
+                'port': output_port,
+                'width': width,
+                'direction': 'o'
+            })
+    
+    # Process each module
+    for module_name, connects in module_connects.items():
+        # Find instance line
+        instance_idx = None
+        instance_pattern = "//INSTANCE.*\\b{}\\b".format(re.escape(module_name))
+        
+        for idx, line in enumerate(lines):
+            if re.search(instance_pattern, line):
+                instance_idx = idx
+                break
+        
+        if instance_idx is None:
+            logger.warning("Instance {} not found in top file".format(module_name))
+            continue
+        
+        # Find CONNECT lines for this instance
+        connect_start = instance_idx + 1
+        connect_end = connect_start
+        
+        while connect_end < len(lines):
+            if lines[connect_end].strip().startswith('//CONNECT'):
+                connect_end += 1
+            else:
+                break
+        
+        # Process connects
+        for conn in connects:
+            if conn['type'] == 'modify':
+                # Modify existing CONNECT with matching wire and direction
+                for idx in range(connect_start, connect_end):
+                    line = lines[idx]
+                    # Check if this CONNECT has the old wire name
+                    if conn['old_wire'] in line and conn['direction'] in line:
+                        # Replace wire name
+                        new_line = line.replace(
+                            ", " + conn['old_wire'] + ",",
+                            ", " + conn['new_wire'] + ","
+                        )
+                        lines[idx] = new_line
+                        logger.debug("Modified CONNECT in {}: {} -> {}".format(
+                            module_name, conn['old_wire'], conn['new_wire']
+                        ))
+                        break
+            
+            elif conn['type'] == 'append':
+                # Add new CONNECT line
+                instance_name = "U_" + module_name
+                connect_line = "//CONNECT(w, {}, {}`{}, {}, {});\n".format(
+                    conn['wire'],
+                    instance_name,
+                    conn['port'],
+                    conn['width'],
+                    conn['direction']
+                )
+                
+                # Insert after last CONNECT or after INSTANCE
+                if connect_end > connect_start:
+                    lines.insert(connect_end, connect_line)
+                    connect_end += 1
+                else:
+                    lines.insert(instance_idx + 1, connect_line)
+                    connect_end = instance_idx + 2
+                
+                logger.debug("Added CONNECT in {}: {} -> {}".format(
+                    module_name, conn['wire'], conn['port']
+                ))
+    
+    # Write back
+    with open(fd_top_path, 'w') as f:
+        f.writelines(lines)
+    
+    logger.info("Generated: {}".format(fd_top_path))
+
+
 # ============================================================================
 # Main Entry Point
 # ============================================================================
@@ -1057,6 +1216,12 @@ Output:
         action='store_true',
         default=False,
         help='Preserve signal case in FD port names (default: all lowercase)'
+    )
+    parser.add_argument(
+        '-link',
+        action='store_true',
+        default=False,
+        help='Generate fd_top.v with updated CONNECT comments'
     )
     parser.add_argument(
         '-version',
@@ -1147,6 +1312,10 @@ Output:
         generate_path_report(path_lines, args.output, logger)
     else:
         logger.info("No path report to generate")
+    
+    # Generate fd_top.v if -link is enabled
+    if args.link:
+        generate_fd_top(args.top, fd_signals, args.output, logger, args.autocase)
     
     # Summary
     logger.info("=" * 60)
