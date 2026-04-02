@@ -529,7 +529,7 @@ class BFSCache:
         self.cache[key] = path
 
 
-def bfs_shortest_path(adjacency, src, dst, cache):
+def bfs_shortest_path(adjacency, src, dst, cache, waive_modules=None):
     """
     Find shortest path between src and dst modules using BFS.
     
@@ -538,10 +538,14 @@ def bfs_shortest_path(adjacency, src, dst, cache):
         src: source module name
         dst: destination module name
         cache: BFSCache instance
+        waive_modules: set of modules to exclude from routing
     
     Returns:
         list: [src, intermediate1, intermediate2, ..., dst] or None if no path
     """
+    if waive_modules is None:
+        waive_modules = set()
+    
     # Check cache first
     cached_path = cache.get(src, dst)
     if cached_path is not None:
@@ -563,6 +567,10 @@ def bfs_shortest_path(adjacency, src, dst, cache):
         current, path = queue.pop(0)
         
         for neighbor in adjacency.get(current, []):
+            # Skip waived modules (but allow src/dst even if waived)
+            if neighbor in waive_modules and neighbor != src and neighbor != dst:
+                continue
+            
             if neighbor == dst:
                 result = path + [neighbor]
                 cache.set(src, dst, result)
@@ -581,7 +589,7 @@ def bfs_shortest_path(adjacency, src, dst, cache):
 # FD Detection and Generation
 # ============================================================================
 
-def detect_fd_signals(connections, adjacency, max_fd_num, logger):
+def detect_fd_signals(connections, adjacency, max_fd_num, logger, waive_modules=None):
     """
     Detect signals requiring FD and compute paths.
     
@@ -590,6 +598,7 @@ def detect_fd_signals(connections, adjacency, max_fd_num, logger):
         adjacency: floorplan adjacency dict
         max_fd_num: maximum allowed intermediate modules
         logger: logger instance
+        waive_modules: set of modules to exclude from FD routing
     
     Returns:
         tuple: (fd_signals, fd_modules, path_report_lines, errors)
@@ -599,6 +608,9 @@ def detect_fd_signals(connections, adjacency, max_fd_num, logger):
             errors: list of error messages
     """
     logger.info("Detecting FD signals...")
+    
+    if waive_modules is None:
+        waive_modules = set()
     
     # Group connections by signal name
     signal_groups = defaultdict(list)
@@ -656,8 +668,8 @@ def detect_fd_signals(connections, adjacency, max_fd_num, logger):
                 if mod2 in adjacency.get(mod1, set()):
                     continue  # Direct connection, no FD needed
                 
-                # Find shortest path
-                path = bfs_shortest_path(adjacency, mod1, mod2, cache)
+                # Find shortest path (excluding waived modules)
+                path = bfs_shortest_path(adjacency, mod1, mod2, cache, waive_modules)
                 
                 if path is None:
                     error_msg = "No path found between {} and {} for signal {}".format(
@@ -1009,6 +1021,11 @@ Output:
         help='Maximum number of intermediate FD modules (default: {})'.format(DEFAULT_MAX_FD_NUM)
     )
     parser.add_argument(
+        '-waive',
+        default=None,
+        help='Waive file containing modules to exclude from FD routing (space-separated)'
+    )
+    parser.add_argument(
         '-version',
         action='version',
         version='FD Generator v{}'.format(VERSION)
@@ -1025,6 +1042,20 @@ Output:
         print("Error: Floorplan file not found: {}".format(args.floorplan))
         sys.exit(1)
     
+    # Parse waive file if specified
+    waive_modules = set()
+    if args.waive:
+        if not os.path.exists(args.waive):
+            print("Error: Waive file not found: {}".format(args.waive))
+            sys.exit(1)
+        with open(args.waive, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                parts = line.split()
+                waive_modules.update(parts)
+    
     # Create output directory
     if not os.path.exists(args.output):
         os.makedirs(args.output)
@@ -1039,6 +1070,8 @@ Output:
     logger.info("Floorplan: {}".format(args.floorplan))
     logger.info("Output directory: {}".format(args.output))
     logger.info("Max FD modules: {}".format(args.maxfdnum))
+    if waive_modules:
+        logger.info("Waived modules: {}".format(', '.join(sorted(waive_modules))))
     logger.info("=" * 60)
     
     # Parse input files
@@ -1047,7 +1080,7 @@ Output:
     
     # Detect FD signals
     fd_signals, fd_modules, path_lines, errors = detect_fd_signals(
-        connections, adjacency, args.maxfdnum, logger
+        connections, adjacency, args.maxfdnum, logger, waive_modules
     )
     
     # Generate FD modules
