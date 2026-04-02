@@ -1106,15 +1106,23 @@ def generate_fd_top(top_file, fd_signals, output_dir, logger, autocase=False):
             else:
                 break
         
-        # Process connects
-        for conn in connects:
-            if conn['type'] == 'modify':
-                # Modify existing CONNECT with matching wire and direction
-                for idx in range(connect_start, connect_end):
-                    line = lines[idx]
-                    # Check if this CONNECT has the old wire name
-                    if conn['old_wire'] in line and conn['direction'] in line:
-                        # Replace wire name
+        # Separate modify and append connects
+        modify_connects = [c for c in connects if c['type'] == 'modify']
+        append_connects = [c for c in connects if c['type'] == 'append']
+        
+        # Process modify connects first
+        for conn in modify_connects:
+            # Modify existing CONNECT with exact wire name and direction match
+            for idx in range(connect_start, connect_end):
+                line = lines[idx]
+                # Parse CONNECT to extract wire name and direction
+                # Format: //CONNECT(w, wire_name, U_MOD`port, width, dir);
+                match = re.search(r'//CONNECT\([^,]+,\s*(\w+),\s*[^,]+,\s*[^,]*,\s*(\w+)\s*\)', line)
+                if match:
+                    existing_wire = match.group(1)
+                    existing_dir = match.group(2)
+                    # Only modify if wire matches AND direction matches 'o' (output)
+                    if existing_wire == conn['old_wire'] and existing_dir == conn['direction']:
                         new_line = line.replace(
                             ", " + conn['old_wire'] + ",",
                             ", " + conn['new_wire'] + ","
@@ -1124,29 +1132,36 @@ def generate_fd_top(top_file, fd_signals, output_dir, logger, autocase=False):
                             module_name, conn['old_wire'], conn['new_wire']
                         ))
                         break
+        
+        # Deduplicate append connects
+        seen = set()
+        unique_appends = []
+        for conn in append_connects:
+            key = (conn['wire'], conn['port'], conn['direction'])
+            if key not in seen:
+                unique_appends.append(conn)
+                seen.add(key)
+        
+        # Process append connects
+        current_connect_end = connect_end
+        for conn in unique_appends:
+            # Add new CONNECT line
+            instance_name = "U_" + module_name
+            connect_line = "//CONNECT(w, {}, {}`{}, {}, {});\n".format(
+                conn['wire'],
+                instance_name,
+                conn['port'],
+                conn['width'],
+                conn['direction']
+            )
             
-            elif conn['type'] == 'append':
-                # Add new CONNECT line
-                instance_name = "U_" + module_name
-                connect_line = "//CONNECT(w, {}, {}`{}, {}, {});\n".format(
-                    conn['wire'],
-                    instance_name,
-                    conn['port'],
-                    conn['width'],
-                    conn['direction']
-                )
-                
-                # Insert after last CONNECT or after INSTANCE
-                if connect_end > connect_start:
-                    lines.insert(connect_end, connect_line)
-                    connect_end += 1
-                else:
-                    lines.insert(instance_idx + 1, connect_line)
-                    connect_end = instance_idx + 2
-                
-                logger.debug("Added CONNECT in {}: {} -> {}".format(
-                    module_name, conn['wire'], conn['port']
-                ))
+            # Insert after last CONNECT
+            lines.insert(current_connect_end, connect_line)
+            current_connect_end += 1
+            
+            logger.debug("Added CONNECT in {}: {} -> {}".format(
+                module_name, conn['wire'], conn['port']
+            ))
     
     # Write back
     with open(fd_top_path, 'w') as f:
