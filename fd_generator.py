@@ -1187,7 +1187,7 @@ def generate_fd_top(top_file, fd_signals, output_dir, logger, autocase=False, co
     for module_name, connects in module_connects.items():
         # Find instance line
         instance_idx = None
-        instance_pattern = "//INSTANCE.*\\b{}\\b".format(re.escape(module_name))
+        instance_pattern = r"//INSTANCE.*\b{}\b".format(module_name)
         
         for idx, line in enumerate(lines):
             if re.search(instance_pattern, line):
