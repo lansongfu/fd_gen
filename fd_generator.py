@@ -1484,9 +1484,10 @@ def generate_fd_top(top_file, fd_signals, output_dir, logger, autocase=False, co
                 line = lines[idx]
                 # Strip Windows line endings and normalize tabs to spaces
                 line = line.rstrip('\r\n').replace('\t', ' ')
-                match = re.search(r'//CONNECT\([^,]+,\s*([\w\[\]:]+),\s*[^,]+,\s*[^,]*,\s*(\w+)\s*\)', line)
+                # Relaxed regex to match various CONNECT formats
+                match = re.search(r'//CONNECT\([^,]+,\s*([^,]+?),\s*[^,]+,\s*[^,]*,\s*([^,]+?)\s*\)', line)
                 if match:
-                    existing_wire = match.group(1)
+                    existing_wire = match.group(1).strip()
                     wire_match = False
                     if existing_wire == conn['old_wire']:
                         wire_match = True
