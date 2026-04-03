@@ -2,6 +2,26 @@
 
 All notable changes to FD Generator will be documented in this file.
 
+## [v1.1.2] - 2026-04-03
+
+### Fixed
+- **CONNECT modify 正则表达式不支持位宽格式**
+  - 问题：正则 `(\w+)` 无法匹配 `ab2[2:0]` 等位宽格式
+  - 修复：改为 `([\w\[\]:]+)` 支持位宽格式
+  - 增强：添加 base wire 匹配逻辑，`ab2[2:0]` 可以匹配到 `ab2`
+
+- **CONNECT 扫描过早终止**
+  - 问题：遇到空行或注释就停止扫描 CONNECT 行
+  - 修复：跳过空行和注释，继续扫描直到非 CONNECT 内容
+
+- **测试脚本路径错误**
+  - 问题：`FD_GEN` 指向 `tests/fd_generator.py`（不存在）
+  - 修复：改为 `fd_generator.py`（tests 目录外）
+
+### Tested
+- 全面测试通过率：6/6 (100%)
+- 测试覆盖：核心功能、Waive/Only、位宽格式
+
 ## [v1.1.1] - 2026-04-03
 
 ### Fixed
