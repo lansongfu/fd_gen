@@ -1435,7 +1435,7 @@ def generate_fd_top(top_file, fd_signals, output_dir, logger, autocase=False, co
                 break
         
         if instance_idx is None:
-            logger.warning("[FD_TOP] Instance {} not found in top file".format(module_name))
+            logger.warning("Instance {} not found in top file".format(module_name))
             continue
         
         # Find CONNECT lines for this instance
@@ -1456,50 +1456,20 @@ def generate_fd_top(top_file, fd_signals, output_dir, logger, autocase=False, co
         modify_connects = [c for c in connects if c['type'] == 'modify']
         append_connects = [c for c in connects if c['type'] == 'append']
         
-        # DEBUG: Print module connect summary
-        logger.info("[FD_TOP] === Module: {} ===".format(module_name))
-        logger.info("[FD_TOP] CONNECT lines range: {} to {} (total: {} lines)".format(
-            connect_start, connect_end, connect_end - connect_start))
-        logger.info("[FD_TOP] Modify connects: {}, Append connects: {}".format(
-            len(modify_connects), len(append_connects)))
-        
-        # DEBUG: Print all modify connect details
-        for i, conn in enumerate(modify_connects):
-            logger.info("[FD_TOP]   Modify[{}]: old_wire='{}' -> new_wire='{}', conn_type={}".format(
-                i, conn['old_wire'], conn['new_wire'], conn.get('conn_type', 'w')))
-        
-        # DEBUG: Print CONNECT lines in range
-        logger.info("[FD_TOP] Scanning CONNECT lines:")
-        for idx in range(connect_start, min(connect_end, connect_start + 30)):
-            logger.info("[FD_TOP]   Line[{}]: {}".format(idx, lines[idx].strip()))
-        
         # Process modify connects first
-        modify_success = 0
-        modify_failed = 0
-        
         for conn in modify_connects:
-            logger.info("[FD_TOP] Looking for: old_wire='{}'".format(conn['old_wire']))
-            found = False
-            
             for idx in range(connect_start, connect_end):
                 line = lines[idx]
-                # Parse CONNECT to extract wire name and direction
                 match = re.search(r'//CONNECT\([^,]+,\s*([\w\[\]:]+),\s*[^,]+,\s*[^,]*,\s*(\w+)\s*\)', line)
                 if match:
                     existing_wire = match.group(1)
-                    existing_dir = match.group(2)
-                    
-                    # Check match
                     wire_match = False
-                    match_reason = ""
                     if existing_wire == conn['old_wire']:
                         wire_match = True
-                        match_reason = "exact match"
                     elif '[' in existing_wire:
                         base_wire = existing_wire.split('[')[0]
                         if base_wire == conn['old_wire']:
                             wire_match = True
-                            match_reason = "base wire match ({} -> {})".format(existing_wire, base_wire)
                     
                     if wire_match:
                         new_line = re.sub(
@@ -1508,22 +1478,7 @@ def generate_fd_top(top_file, fd_signals, output_dir, logger, autocase=False, co
                             line
                         )
                         lines[idx] = new_line
-                        modify_success += 1
-                        found = True
-                        logger.info("[FD_TOP] *** SUCCESS: Modified line {} - {} -> {} ({})".format(
-                            idx, conn['old_wire'], conn['new_wire'], match_reason))
-                        logger.info("[FD_TOP]     New: {}".format(lines[idx].strip()))
                         break
-                    else:
-                        logger.info("[FD_TOP]   Line {}: wire='{}' - no match".format(idx, existing_wire))
-            
-            if not found:
-                modify_failed += 1
-                logger.warning("[FD_TOP] *** FAILED: No matching CONNECT found for old_wire='{}'".format(
-                    conn['old_wire']))
-        
-        logger.info("[FD_TOP] Module {} summary: {} succeeded, {} failed".format(
-            module_name, modify_success, modify_failed))
         
         # Deduplicate append connects
         seen = set()
