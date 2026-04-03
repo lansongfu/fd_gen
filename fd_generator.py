@@ -945,12 +945,26 @@ def detect_fd_signals(connections, adjacency, max_fd_num, logger, waive_modules=
         # Note: Use first CONNECT's declared width as the reference
         width = conns[0].width
         width_mismatch = False
+        has_severe_mismatch = False
         for conn in conns[1:]:
             if conn.width != width:
                 width_mismatch = True
-                logger.warning("Signal '{}': width mismatch - declared {} vs {} at module {}".format(
-                    signal_name, width, conn.width, conn.module_name
-                ))
+                # Check if width difference is severe (>4x)
+                if max(width, conn.width) > min(width, conn.width) * 4:
+                    has_severe_mismatch = True
+                    error_msg = "Signal '{}': severe width mismatch - declared {} vs {} at module {} (difference >4x). Skipping.".format(
+                        signal_name, width, conn.width, conn.module_name
+                    )
+                    logger.error(error_msg)
+                    errors.append(error_msg)
+                else:
+                    logger.warning("Signal '{}': width mismatch - declared {} vs {} at module {}".format(
+                        signal_name, width, conn.width, conn.module_name
+                    ))
+        
+        # Skip signal if severe width mismatch
+        if has_severe_mismatch:
+            continue
         
         # All signals reaching here are unidirectional (not bidirectional)
         is_bidir = False
