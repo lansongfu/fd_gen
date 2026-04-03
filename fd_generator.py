@@ -1482,8 +1482,7 @@ def generate_fd_top(top_file, fd_signals, output_dir, logger, autocase=False, co
         for conn in modify_connects:
             for idx in range(connect_start, connect_end):
                 line = lines[idx]
-                # Remove all whitespace (spaces, tabs, newlines) for robust parsing
-                # This handles any combination of spaces/tabs freely
+                # Use cleaned line for matching only, preserve original line for output
                 clean_line = line.replace(' ', '').replace('\t', '').replace('\r', '').replace('\n', '')
                 
                 # Check if this is a CONNECT line
@@ -1503,6 +1502,7 @@ def generate_fd_top(top_file, fd_signals, output_dir, logger, autocase=False, co
                     # parts[3] = width
                     # parts[4] = direction
                     existing_wire = parts[1]
+                    # Keep original line intact for replacement to preserve formatting
                     wire_match = False
                     if existing_wire == conn['old_wire']:
                         wire_match = True
