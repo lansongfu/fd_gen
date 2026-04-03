@@ -1326,9 +1326,9 @@ def generate_fd_top(top_file, fd_signals, output_dir, logger, autocase=False, co
                 source_module = path[0]
         
         # Only modify source module's connect if it's not TOP and not an intermediate FD module
-        # For top input signals (TOP→...→sink), don't modify intermediate FD modules
-        # For top output signals (src→...→TOP), modify src module
-        # For module-to-module signals (src→...→sink), modify src module
+        # For top input signals (TOP->...->sink), don't modify intermediate FD modules
+        # For top output signals (src->...->TOP), modify src module
+        # For module-to-module signals (src->...->sink), modify src module
         
         if source_module != 'TOP' and source_module not in path[1:-1]:  # Not TOP and not intermediate
             start_wire = get_port_name(signal, source_module, 'from')
@@ -1435,7 +1435,7 @@ def generate_fd_top(top_file, fd_signals, output_dir, logger, autocase=False, co
                 break
         
         if instance_idx is None:
-            logger.warning("Instance {} not found in top file".format(module_name))
+            logger.warning("[FD_TOP] Instance {} not found in top file".format(module_name))
             continue
         
         # Find CONNECT lines for this instance
@@ -1456,40 +1456,74 @@ def generate_fd_top(top_file, fd_signals, output_dir, logger, autocase=False, co
         modify_connects = [c for c in connects if c['type'] == 'modify']
         append_connects = [c for c in connects if c['type'] == 'append']
         
+        # DEBUG: Print module connect summary
+        logger.info("[FD_TOP] === Module: {} ===".format(module_name))
+        logger.info("[FD_TOP] CONNECT lines range: {} to {} (total: {} lines)".format(
+            connect_start, connect_end, connect_end - connect_start))
+        logger.info("[FD_TOP] Modify connects: {}, Append connects: {}".format(
+            len(modify_connects), len(append_connects)))
+        
+        # DEBUG: Print all modify connect details
+        for i, conn in enumerate(modify_connects):
+            logger.info("[FD_TOP]   Modify[{}]: old_wire='{}' -> new_wire='{}', conn_type={}".format(
+                i, conn['old_wire'], conn['new_wire'], conn.get('conn_type', 'w')))
+        
+        # DEBUG: Print CONNECT lines in range
+        logger.info("[FD_TOP] Scanning CONNECT lines:")
+        for idx in range(connect_start, min(connect_end, connect_start + 30)):
+            logger.info("[FD_TOP]   Line[{}]: {}".format(idx, lines[idx].strip()))
+        
         # Process modify connects first
+        modify_success = 0
+        modify_failed = 0
+        
         for conn in modify_connects:
-            # Modify existing CONNECT with exact wire name match
+            logger.info("[FD_TOP] Looking for: old_wire='{}'".format(conn['old_wire']))
+            found = False
+            
             for idx in range(connect_start, connect_end):
                 line = lines[idx]
                 # Parse CONNECT to extract wire name and direction
-                # Format: //CONNECT(w/i/o/b, wire_name, U_MOD`port, width, dir);
                 match = re.search(r'//CONNECT\([^,]+,\s*([\w\[\]:]+),\s*[^,]+,\s*[^,]*,\s*(\w+)\s*\)', line)
                 if match:
                     existing_wire = match.group(1)
                     existing_dir = match.group(2)
-                    # Modify if wire matches (direction check relaxed for TOP connections)
-                    # Handle both simple wires (ab2) and bit-select wires (ab2[2:0])
+                    
+                    # Check match
                     wire_match = False
+                    match_reason = ""
                     if existing_wire == conn['old_wire']:
                         wire_match = True
+                        match_reason = "exact match"
                     elif '[' in existing_wire:
-                        # Extract base wire name from bit-select (e.g., ab2[2:0] -> ab2)
                         base_wire = existing_wire.split('[')[0]
                         if base_wire == conn['old_wire']:
                             wire_match = True
+                            match_reason = "base wire match ({} -> {})".format(existing_wire, base_wire)
                     
                     if wire_match:
-                        # Replace wire name, preserving bit-select format if present
                         new_line = re.sub(
                             r',\s*' + re.escape(existing_wire) + r'\s*,',
                             ', ' + conn['new_wire'] + ',',
                             line
                         )
                         lines[idx] = new_line
-                        logger.debug("Modified CONNECT in {}: {} -> {}".format(
-                            module_name, conn['old_wire'], conn['new_wire']
-                        ))
+                        modify_success += 1
+                        found = True
+                        logger.info("[FD_TOP] *** SUCCESS: Modified line {} - {} -> {} ({})".format(
+                            idx, conn['old_wire'], conn['new_wire'], match_reason))
+                        logger.info("[FD_TOP]     New: {}".format(lines[idx].strip()))
                         break
+                    else:
+                        logger.info("[FD_TOP]   Line {}: wire='{}' - no match".format(idx, existing_wire))
+            
+            if not found:
+                modify_failed += 1
+                logger.warning("[FD_TOP] *** FAILED: No matching CONNECT found for old_wire='{}'".format(
+                    conn['old_wire']))
+        
+        logger.info("[FD_TOP] Module {} summary: {} succeeded, {} failed".format(
+            module_name, modify_success, modify_failed))
         
         # Deduplicate append connects
         seen = set()
