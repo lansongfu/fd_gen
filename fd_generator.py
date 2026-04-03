@@ -1482,12 +1482,27 @@ def generate_fd_top(top_file, fd_signals, output_dir, logger, autocase=False, co
         for conn in modify_connects:
             for idx in range(connect_start, connect_end):
                 line = lines[idx]
-                # Strip Windows line endings and normalize tabs to spaces
-                line = line.rstrip('\r\n').replace('\t', ' ')
-                # Relaxed regex to match various CONNECT formats
-                match = re.search(r'//CONNECT\([^,]+,\s*([^,]+?),\s*[^,]+,\s*[^,]*,\s*([^,]+?)\s*\)', line)
-                if match:
-                    existing_wire = match.group(1).strip()
+                # Remove all whitespace (spaces, tabs, newlines) for robust parsing
+                # This handles any combination of spaces/tabs freely
+                clean_line = line.replace(' ', '').replace('\t', '').replace('\r', '').replace('\n', '')
+                
+                # Check if this is a CONNECT line
+                if not clean_line.startswith('//CONNECT('):
+                    continue
+                
+                # Simple comma-based parsing
+                # Format: //CONNECT(type,wire,instance`port,width,dir);
+                if clean_line.endswith(');'):
+                    clean_line = clean_line[:-2]  # Remove ');'
+                
+                parts = clean_line.split(',')
+                if len(parts) >= 5:
+                    # parts[0] = "//CONNECT(type"
+                    # parts[1] = wire name (may include bit-select like [7:0])
+                    # parts[2] = instance`port
+                    # parts[3] = width
+                    # parts[4] = direction
+                    existing_wire = parts[1]
                     wire_match = False
                     if existing_wire == conn['old_wire']:
                         wire_match = True
