@@ -236,7 +236,7 @@ def parse_floorplan(floorplan_file, logger):
     """
     logger.info("Parsing floorplan: {}".format(floorplan_file))
     
-    adjacency = defaultdict(set)
+    adjacency = defaultdict(list)
     
     with open(floorplan_file, 'r') as f:
         for line_num, line in enumerate(f, 1):
@@ -253,10 +253,16 @@ def parse_floorplan(floorplan_file, logger):
             module_name = parts[0]
             adjacent_modules = parts[1:]
             
-            # Add bidirectional relationships
+            # Add bidirectional relationships (with deduplication)
             for adj in adjacent_modules:
-                adjacency[module_name].add(adj)
-                adjacency[adj].add(module_name)
+                if adj not in adjacency[module_name]:
+                    adjacency[module_name].append(adj)
+                if module_name not in adjacency[adj]:
+                    adjacency[adj].append(module_name)
+    
+    # Sort all adjacency lists for deterministic BFS traversal
+    for module in adjacency:
+        adjacency[module] = sorted(adjacency[module])
     
     logger.info("Floorplan parsed: {} modules".format(len(adjacency)))
     return dict(adjacency)
@@ -630,9 +636,8 @@ def bfs_shortest_path(adjacency, src, dst, cache, waive_modules=None, only_modul
     while queue:
         current, path = queue.pop(0)
         
-        # Sort neighbors for deterministic path selection
-        # Without sorting, set iteration order is non-deterministic
-        for neighbor in sorted(adjacency.get(current, [])):
+        # Neighbors are already sorted in parse_floorplan
+        for neighbor in adjacency.get(current, []):
             # Skip TOP module (cannot place FD on TOP)
             if neighbor == 'TOP':
                 continue
@@ -677,16 +682,16 @@ def _find_path_to_top(adjacency, src_module, cache, waive_modules, only_modules)
     Returns:
         list: path ending with 'TOP', or None if no path
     """
-    top_adjacent = adjacency.get('TOP', set())
+    top_adjacent = adjacency.get('TOP', [])
     
     # Filter top_adjacent by waive_modules and only_modules
-    valid_top_adjacent = set()
+    valid_top_adjacent = []
     for adj_module in top_adjacent:
         if adj_module in waive_modules:
             continue
         if only_modules and adj_module not in only_modules:
             continue
-        valid_top_adjacent.add(adj_module)
+        valid_top_adjacent.append(adj_module)
     
     # Check if src_module is directly adjacent to TOP (via valid adjacent module)
     if src_module in valid_top_adjacent:
@@ -694,7 +699,7 @@ def _find_path_to_top(adjacency, src_module, cache, waive_modules, only_modules)
     
     # Check if src_module is adjacent to any valid TOP-adjacent module (1 intermediate)
     for adj_module in valid_top_adjacent:
-        if adj_module in adjacency.get(src_module, set()):
+        if adj_module in adjacency.get(src_module, []):
             return [src_module, adj_module, 'TOP']
     
     # BFS to find path to any valid TOP-adjacent module
@@ -726,16 +731,16 @@ def _find_path_from_top(adjacency, dst_module, cache, waive_modules, only_module
     Returns:
         list: path starting with 'TOP', or None if no path
     """
-    top_adjacent = adjacency.get('TOP', set())
+    top_adjacent = adjacency.get('TOP', [])
     
     # Filter top_adjacent by waive_modules and only_modules
-    valid_top_adjacent = set()
+    valid_top_adjacent = []
     for adj_module in top_adjacent:
         if adj_module in waive_modules:
             continue
         if only_modules and adj_module not in only_modules:
             continue
-        valid_top_adjacent.add(adj_module)
+        valid_top_adjacent.append(adj_module)
     
     # Check if dst_module is directly adjacent to TOP (via valid adjacent module)
     if dst_module in valid_top_adjacent:
@@ -743,7 +748,7 @@ def _find_path_from_top(adjacency, dst_module, cache, waive_modules, only_module
     
     # Check if dst_module is adjacent to any valid TOP-adjacent module (1 intermediate)
     for adj_module in valid_top_adjacent:
-        if adj_module in adjacency.get(dst_module, set()):
+        if adj_module in adjacency.get(dst_module, []):
             return ['TOP', adj_module, dst_module]
     
     # BFS to find path from any valid TOP-adjacent module
@@ -771,7 +776,7 @@ def _process_single_path(src_module, dst_module, signal_name, width, case_style,
     Handles FD module generation and path report for one connection.
     """
     # Check if adjacent (no FD needed)
-    if dst_module in adjacency.get(src_module, set()):
+    if dst_module in adjacency.get(src_module, []):
         return  # Direct connection, no FD needed
     
     # Find path based on whether TOP is involved
