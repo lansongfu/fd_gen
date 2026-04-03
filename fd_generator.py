@@ -1250,7 +1250,7 @@ def generate_path_report(path_lines, output_dir, logger):
     logger.info("Generated: {}".format(report_path))
 
 
-def generate_fd_top(top_file, fd_signals, output_dir, logger, autocase=False, connections=None):
+def generate_fd_top(top_file, fd_signals, output_dir, logger, autocase=False, connections=None, debug_print=False):
     """
     Generate fd_top.v with updated CONNECT comments.
     
@@ -1464,6 +1464,20 @@ def generate_fd_top(top_file, fd_signals, output_dir, logger, autocase=False, co
         modify_connects = [c for c in connects if c['type'] == 'modify']
         append_connects = [c for c in connects if c['type'] == 'append']
         
+        # Debug print
+        if debug_print:
+            logger.info("[FD_TOP] === Module: {} ===".format(module_name))
+            logger.info("[FD_TOP] CONNECT lines range: {} to {} (total: {} lines)".format(
+                connect_start + 1, connect_end, connect_end - connect_start))
+            logger.info("[FD_TOP] Modify connects: {}, Append connects: {}".format(
+                len(modify_connects), len(append_connects)))
+            for i, conn in enumerate(modify_connects):
+                logger.info("[FD_TOP]   Modify[{}]: old_wire='{}' -> new_wire='{}'".format(
+                    i, conn['old_wire'], conn['new_wire']))
+            logger.info("[FD_TOP] Scanning CONNECT lines (first 30):")
+            for idx in range(connect_start, min(connect_end, connect_start + 30)):
+                logger.info("[FD_TOP]   Line[{}]: {}".format(idx + 1, lines[idx].strip()[:100]))
+        
         # Process modify connects first
         for conn in modify_connects:
             for idx in range(connect_start, connect_end):
@@ -1486,6 +1500,8 @@ def generate_fd_top(top_file, fd_signals, output_dir, logger, autocase=False, co
                             line
                         )
                         lines[idx] = new_line
+                        if debug_print:
+                            logger.info("[FD_TOP]   *** MODIFIED: {} -> {}".format(conn['old_wire'], conn['new_wire']))
                         break
         
         # Deduplicate append connects
@@ -1567,6 +1583,12 @@ Output:
         type=int,
         default=DEFAULT_MAX_FD_NUM,
         help='Maximum number of intermediate FD modules (default: {})'.format(DEFAULT_MAX_FD_NUM)
+    )
+    parser.add_argument(
+        '-print',
+        action='store_true',
+        dest='debug_print',
+        help='Enable detailed debug printing for fd_top generation'
     )
     parser.add_argument(
         '-waive',
@@ -1682,7 +1704,7 @@ Output:
     
     # Generate fd_top.v if -link is enabled
     if args.link:
-        generate_fd_top(args.top, fd_signals, args.output, logger, args.autocase, connections)
+        generate_fd_top(args.top, fd_signals, args.output, logger, args.autocase, connections, args.debug_print)
     
     # Summary
     logger.info("=" * 60)
