@@ -1633,16 +1633,17 @@ def align_all_connects(lines):
                 max_width_len = max(len(d['width']) for d in connect_data)
                 
                 # Format all CONNECT lines
+                # Padding BEFORE comma (right-align fields), no space after comma
                 for d in connect_data:
-                    wire_padding = ' ' * (max_wire_len - len(d['wire']) + 1)
-                    inst_padding = ' ' * (max_inst_len - len(d['inst_port']) + 1)
-                    width_padding = ' ' * (max_width_len - len(d['width']) + 1)
+                    wire_padding = ' ' * (max_wire_len - len(d['wire']))
+                    inst_padding = ' ' * (max_inst_len - len(d['inst_port']))
+                    width_padding = ' ' * (max_width_len - len(d['width']))
                     
                     formatted = (
                         "//CONNECT(" + d['type'] + ", " +
-                        d['wire'] + "," + wire_padding + " " +
-                        d['inst_port'] + "," + inst_padding + " " +
-                        d['width'] + "," + width_padding + " " +
+                        wire_padding + d['wire'] + "," +
+                        inst_padding + d['inst_port'] + "," +
+                        width_padding + d['width'] + "," +
                         d['direction'] + ");"
                     )
                     lines[d['line_idx']] = formatted + '\n'
