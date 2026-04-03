@@ -16,8 +16,8 @@ Version: 1.1.1
 Changelog:
   v1.1.1 (2026-04-03) - Bug Fix Release
     - Fix: One-to-many signal FD module original connection bug (ata signal)
-      * Issue: For TOP input signals (e.g., ata: TOP→A/B/C/D/E), when only some paths need FD
-        (e.g., TOP→A via B), B module's original ata connection was incorrectly modified to
+      * Issue: For TOP input signals (e.g., ata: TOP->A/B/C/D/E), when only some paths need FD
+        (e.g., TOP->A via B), B module's original ata connection was incorrectly modified to
         fd_from_b_ata instead of keeping original name 'ata'
       * Fix: In generate_fd_top(), correctly identify source module based on conn_type,
         only modify true source module's connects, don't modify FD module's original connects
