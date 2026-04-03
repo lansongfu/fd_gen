@@ -11,9 +11,26 @@ Usage:
     python fd_generator.py -top <top.v> -floorplan <adjacency.txt> -link [-autocase] [-waive waive.txt] [-only only.txt]
 
 Author: Konoha Ninja (Crow)
-Version: 1.1.0
+Version: 1.1.1
 
 Changelog:
+  v1.1.1 (2026-04-03) - Bug Fix Release
+    - Fix: One-to-many signal FD module original connection bug (ata signal)
+      * Issue: For TOP input signals (e.g., ata: TOP→A/B/C/D/E), when only some paths need FD
+        (e.g., TOP→A via B), B module's original ata connection was incorrectly modified to
+        fd_from_b_ata instead of keeping original name 'ata'
+      * Fix: In generate_fd_top(), correctly identify source module based on conn_type,
+        only modify true source module's connects, don't modify FD module's original connects
+      * Test: All B/C/D/E modules' original ata connections now correctly remain 'ata'
+    - Fix: Waive modules not checked during FD module generation
+      * FD modules now skip waived modules
+      * Paths correctly reroute around waived modules
+    - Fix: Only modules not checked during FD module generation
+      * FD modules now only include modules in only list
+    - Fix: _find_path_to_top and _find_path_from_top not filtering only_modules
+      * Added valid_top_adjacent filtering in both functions
+    - Test: 11/11 tests passed (100% pass rate)
+  
   v1.1.0 (2026-04-02)
     - Fix: fd_top.v INSTANCE regex pattern causing modify failure
     - Fix: Skip bidirectional signals (direction='b') from FD processing
