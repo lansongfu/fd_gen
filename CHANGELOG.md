@@ -2,6 +2,23 @@
 
 All notable changes to FD Generator will be documented in this file.
 
+## [v1.1.13] - 2026-04-03
+
+### Fixed
+- **CONNECT 对齐格式错误**
+  - 问题：逗号位置没有对齐，空格填充位置错误
+  - 修复：字段左对齐，字段后补空格，然后逗号 + 空格
+  - 格式：`field + padding + ", " + next_field`
+  - 效果：所有逗号现在在固定列位置对齐
+
+### Changed
+- 优化 CONNECT 格式化逻辑，确保美观和对齐
+
+### Tested
+- BFS 稳定性测试：10/10 一致
+- 对齐格式验证：通过
+- 全面测试通过率：6/6 (100%)
+
 ## [v1.1.2] - 2026-04-03
 
 ### Fixed

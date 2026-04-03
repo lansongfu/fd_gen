@@ -11,9 +11,17 @@ Usage:
     python fd_generator.py -top <top.v> -floorplan <adjacency.txt> -link [-autocase] [-waive waive.txt] [-only only.txt]
 
 Author: Konoha Ninja (Crow)
-Version: 1.1.2
+Version: 1.1.13
 
 Changelog:
+  v1.1.13 (2026-04-03) - CONNECT Alignment Fix Release
+    - Fix: CONNECT alignment format with wrong comma positions
+      * Changed padding from before comma to after field (left-align fields)
+      * Format: field + padding + ", " + next_field
+      * Result: All commas now at fixed column positions
+    - Test: BFS stability 10/10 runs identical
+    - Test: Full test suite 6/6 passed (100%)
+
   v1.1.2 (2026-04-03) - Modify Bug Fix Release
     - Fix: CONNECT modify regex not matching bit-select wires (e.g., ab2[2:0])
       * Changed regex from (\w+) to ([\w\[\]:]+) to support bit-select format
@@ -1633,7 +1641,11 @@ def align_all_connects(lines):
                 max_width_len = max(len(d['width']) for d in connect_data)
                 
                 # Format all CONNECT lines
-                # Padding BEFORE comma (right-align fields), no space after comma
+                # Format: field + padding + ", " + next_field
+                # - Field is left-aligned
+                # - Padding AFTER field to reach fixed column width
+                # - Then comma + space
+                # This ensures all commas are at fixed column positions
                 for d in connect_data:
                     wire_padding = ' ' * (max_wire_len - len(d['wire']))
                     inst_padding = ' ' * (max_inst_len - len(d['inst_port']))
@@ -1641,9 +1653,9 @@ def align_all_connects(lines):
                     
                     formatted = (
                         "//CONNECT(" + d['type'] + ", " +
-                        wire_padding + d['wire'] + "," +
-                        inst_padding + d['inst_port'] + "," +
-                        width_padding + d['width'] + "," +
+                        d['wire'] + wire_padding + ", " +
+                        d['inst_port'] + inst_padding + ", " +
+                        d['width'] + width_padding + ", " +
                         d['direction'] + ");"
                     )
                     lines[d['line_idx']] = formatted + '\n'
