@@ -2,7 +2,7 @@
 
 **SoC Feedthrough Auto Generation Tool**
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/lansongfu/fd_gen)
+[![Version](https://img.shields.io/badge/version-1.1.1-blue.svg)](https://github.com/lansongfu/fd_gen)
 [![Python](https://img.shields.io/badge/python-2.7%2B-green.svg)](https://python.org)
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 

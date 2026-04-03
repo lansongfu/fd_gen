@@ -46,7 +46,7 @@ from datetime import datetime
 # Global Configuration
 # ============================================================================
 
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 DEFAULT_OUTPUT_DIR = "fd_output"
 DEFAULT_MAX_FD_NUM = 3
 
@@ -88,18 +88,19 @@ def setup_logging(output_dir):
 
 class SignalConnection:
     """Represents a signal connection between modules."""
-    def __init__(self, signal_name, module_name, port_name, width, direction, is_top=False):
+    def __init__(self, signal_name, module_name, port_name, width, direction, is_top=False, conn_type=None):
         self.signal_name = signal_name
         self.module_name = module_name
         self.port_name = port_name
         self.width = width
         self.direction = direction  # 'i', 'o', 'b'
         self.is_top = is_top  # True if connected to top-level
+        self.conn_type = conn_type  # 'i', 'o', 'b', 'w' - original CONNECT type
     
     def __repr__(self):
-        return "SignalConnection({}, {}, {}, {}, {})".format(
+        return "SignalConnection({}, {}, {}, {}, {}, type={})".format(
             self.signal_name, self.module_name, self.port_name, 
-            self.width, self.direction
+            self.width, self.direction, self.conn_type
         )
 
 
@@ -381,7 +382,8 @@ def parse_connect(line, line_num, logger):
                     port_name=port_name,
                     width=width,  # Use declared width from CONNECT
                     direction=direction,
-                    is_top=is_top
+                    is_top=is_top,
+                    conn_type=conn_type
                 ))
         elif wire_name and not wire_name.startswith("'"):
             # Regular signal (not empty, not fixed value)
@@ -394,7 +396,8 @@ def parse_connect(line, line_num, logger):
                     port_name=port_name,
                     width=width,  # Use declared width from CONNECT
                     direction=direction,
-                    is_top=is_top
+                    is_top=is_top,
+                    conn_type=conn_type
                 ))
         
         return connections
@@ -545,8 +548,8 @@ class BFSCache:
         self.cache = {}
     
     def _make_key(self, src, dst):
-        """Create unordered key for module pair."""
-        return tuple(sorted([src, dst]))
+        """Create ordered key for module pair (direction matters!)."""
+        return (src, dst)
     
     def get(self, src, dst):
         """Get cached path if exists."""
@@ -646,17 +649,26 @@ def _find_path_to_top(adjacency, src_module, cache, waive_modules, only_modules)
     """
     top_adjacent = adjacency.get('TOP', set())
     
-    # Check if src_module is directly adjacent to TOP
-    if src_module in top_adjacent:
+    # Filter top_adjacent by waive_modules and only_modules
+    valid_top_adjacent = set()
+    for adj_module in top_adjacent:
+        if adj_module in waive_modules:
+            continue
+        if only_modules and adj_module not in only_modules:
+            continue
+        valid_top_adjacent.add(adj_module)
+    
+    # Check if src_module is directly adjacent to TOP (via valid adjacent module)
+    if src_module in valid_top_adjacent:
         return [src_module, 'TOP']
     
-    # Check if src_module is adjacent to any TOP-adjacent module (1 intermediate)
-    for adj_module in top_adjacent:
+    # Check if src_module is adjacent to any valid TOP-adjacent module (1 intermediate)
+    for adj_module in valid_top_adjacent:
         if adj_module in adjacency.get(src_module, set()):
             return [src_module, adj_module, 'TOP']
     
-    # BFS to find path to any TOP-adjacent module
-    for adj_module in top_adjacent:
+    # BFS to find path to any valid TOP-adjacent module
+    for adj_module in valid_top_adjacent:
         if adj_module == src_module:
             continue
         path = bfs_shortest_path(adjacency, src_module, adj_module, cache, waive_modules, only_modules)
@@ -686,17 +698,26 @@ def _find_path_from_top(adjacency, dst_module, cache, waive_modules, only_module
     """
     top_adjacent = adjacency.get('TOP', set())
     
-    # Check if dst_module is directly adjacent to TOP
-    if dst_module in top_adjacent:
+    # Filter top_adjacent by waive_modules and only_modules
+    valid_top_adjacent = set()
+    for adj_module in top_adjacent:
+        if adj_module in waive_modules:
+            continue
+        if only_modules and adj_module not in only_modules:
+            continue
+        valid_top_adjacent.add(adj_module)
+    
+    # Check if dst_module is directly adjacent to TOP (via valid adjacent module)
+    if dst_module in valid_top_adjacent:
         return ['TOP', dst_module]
     
-    # Check if dst_module is adjacent to any TOP-adjacent module (1 intermediate)
-    for adj_module in top_adjacent:
+    # Check if dst_module is adjacent to any valid TOP-adjacent module (1 intermediate)
+    for adj_module in valid_top_adjacent:
         if adj_module in adjacency.get(dst_module, set()):
             return ['TOP', adj_module, dst_module]
     
-    # BFS to find path from any TOP-adjacent module
-    for adj_module in top_adjacent:
+    # BFS to find path from any valid TOP-adjacent module
+    for adj_module in valid_top_adjacent:
         if adj_module == dst_module:
             continue
         path = bfs_shortest_path(adjacency, adj_module, dst_module, cache, waive_modules, only_modules)
@@ -709,6 +730,99 @@ def _find_path_from_top(adjacency, dst_module, cache, waive_modules, only_module
 # ============================================================================
 # FD Detection and Generation
 # ============================================================================
+
+def _process_single_path(src_module, dst_module, signal_name, width, case_style,
+                         adjacency, cache, waive_modules, only_modules,
+                         fd_modules, fd_signals, path_report_lines, errors,
+                         max_fd_num, connections, logger, is_bidir=False):
+    """
+    Process a single source-to-destination path for a signal.
+    
+    Handles FD module generation and path report for one connection.
+    """
+    # Check if adjacent (no FD needed)
+    if dst_module in adjacency.get(src_module, set()):
+        return  # Direct connection, no FD needed
+    
+    # Find path based on whether TOP is involved
+    if dst_module == 'TOP':
+        path = _find_path_to_top(adjacency, src_module, cache, waive_modules, only_modules)
+    elif src_module == 'TOP':
+        path = _find_path_from_top(adjacency, dst_module, cache, waive_modules, only_modules)
+    else:
+        path = bfs_shortest_path(adjacency, src_module, dst_module, cache, waive_modules, only_modules)
+    
+    if path is None:
+        error_msg = "No path found between {} and {} for signal {}".format(
+            src_module, dst_module, signal_name
+        )
+        logger.error(error_msg)
+        errors.append(error_msg)
+        return
+    
+    # Intermediate modules are all modules between src and dst (excluding endpoints)
+    # path = [src, int1, int2, ..., dst]
+    # intermediate_modules = [int1, int2, ...]
+    intermediate_modules = path[1:-1]  # Exclude start (path[0]) and end (path[-1])
+    
+    if len(intermediate_modules) > max_fd_num:
+        error_msg = "Path too long for signal {}: {} intermediate modules (max {})".format(
+            signal_name, len(intermediate_modules), max_fd_num
+        )
+        logger.error(error_msg)
+        errors.append(error_msg)
+        return
+    
+    # Generate FD modules for intermediate modules
+    for fd_module_name in intermediate_modules:
+        # Skip waived modules
+        if fd_module_name in waive_modules:
+            logger.info("Signal '{}': skipping FD module {} (waived)".format(signal_name, fd_module_name))
+            continue
+        
+        # Skip modules not in only list
+        if only_modules and fd_module_name not in only_modules:
+            logger.info("Signal '{}': skipping FD module {} (not in only list)".format(signal_name, fd_module_name))
+            continue
+        
+        if fd_module_name not in fd_modules:
+            fd_modules[fd_module_name] = FDModule(fd_module_name)
+        
+        # Determine from/to based on path order
+        # path = [src, int1, int2, ..., dst]
+        # For FD module at position idx in intermediate_modules:
+        #   receives from path[idx], sends to path[idx+2]
+        idx = intermediate_modules.index(fd_module_name)
+        from_module = path[idx]  # Module before this FD module
+        to_module = path[idx + 2]  # Module after this FD module
+        
+        fd_port = FDPort(
+            signal_name=signal_name,
+            from_module=from_module,
+            to_module=to_module,
+            width=width,
+            is_bidir=is_bidir,
+            autocase=False  # Use global autocase setting if needed
+        )
+        fd_modules[fd_module_name].add_port(fd_port)
+    
+    # Build path report line
+    path_line = build_path_line(
+        signal_name, path, intermediate_modules,
+        case_style, is_bidir, connections, logger
+    )
+    path_report_lines.append(path_line)
+    
+    fd_signals.append({
+        'signal': signal_name,
+        'width': width,
+        'from': src_module,
+        'to': dst_module,
+        'path': path,
+        'case_style': case_style,
+        'is_bidir': is_bidir
+    })
+
 
 def detect_fd_signals(connections, adjacency, max_fd_num, logger, waive_modules=None, autocase=False, only_modules=None):
     """
@@ -751,8 +865,16 @@ def detect_fd_signals(connections, adjacency, max_fd_num, logger, waive_modules=
     cache = BFSCache()
     
     for signal_name, conns in signal_groups.items():
+        # Check for top-level signals (only one connection, other end is TOP)
+        has_top_input = any(c.conn_type == 'i' for c in conns)
+        has_top_output = any(c.conn_type == 'o' for c in conns)
+        
         if len(conns) < 2:
-            continue  # Need at least 2 connections
+            # Single connection: only process if it's a top-level signal
+            if has_top_input or has_top_output:
+                pass  # Continue processing
+            else:
+                continue  # Need at least 2 connections for module-to-module signals
         
         # Skip bidirectional signals (direction='b')
         # Design Decision (v1.1.0): Bidirectional signals are completely ignored.
@@ -773,19 +895,6 @@ def detect_fd_signals(connections, adjacency, max_fd_num, logger, waive_modules=
             errors.append(error_msg)
             continue  # Skip this signal
         
-        # Get unique modules connected by this signal
-        modules = list(set([c.module_name for c in conns]))
-        
-        # Check if any connection goes to TOP
-        has_top = any(c.is_top for c in conns)
-        
-        # If has TOP connection, add TOP to modules list for path finding
-        if has_top and 'TOP' not in modules:
-            modules.append('TOP')
-        
-        if len(modules) < 2:
-            continue  # All connections to same module
-        
         # Determine case style from signal name
         case_style = get_case_style(signal_name)
         
@@ -803,94 +912,63 @@ def detect_fd_signals(connections, adjacency, max_fd_num, logger, waive_modules=
         # All signals reaching here are unidirectional (not bidirectional)
         is_bidir = False
         
-        # For each pair of modules, check if FD is needed
-        processed_pairs = set()
+        # Identify source and sink modules for this signal using conn_type and direction
+        # For conn_type='i' (top input): TOP is source, submodules are sinks
+        # For conn_type='o' (top output): submodules are sources, TOP is sink
+        # For conn_type='w' (wire): direction='o' is source, direction='i' is sink
         
-        for i, mod1 in enumerate(modules):
-            for mod2 in modules[i+1:]:
-                # Create unordered pair key for deduplication
-                pair_key = tuple(sorted([mod1, mod2]))
-                if pair_key in processed_pairs:
-                    continue
-                processed_pairs.add(pair_key)
-                
-                # Check if adjacent
-                if mod2 in adjacency.get(mod1, set()):
-                    continue  # Direct connection, no FD needed
-                
-                # If one end is TOP, find path to/from TOP-adjacent module
-                # TOP is a virtual module - signals reach TOP through adjacent submodules
-                if mod2 == 'TOP':
-                    # Find path from mod1 to any TOP-adjacent module, then append TOP
-                    path = _find_path_to_top(adjacency, mod1, cache, waive_modules, only_modules)
-                    
-                elif mod1 == 'TOP':
-                    # Find path from any TOP-adjacent module to mod2, then prepend TOP
-                    path = _find_path_from_top(adjacency, mod2, cache, waive_modules, only_modules)
-                    
-                else:
-                    # Regular path between two modules
-                    path = bfs_shortest_path(adjacency, mod1, mod2, cache, waive_modules, only_modules)
-                
-                if path is None:
-                    error_msg = "No path found between {} and {} for signal {}".format(
-                        mod1, mod2, signal_name
-                    )
-                    logger.error(error_msg)
-                    errors.append(error_msg)
-                    continue
-                
-                # Check path length (excluding TOP)
-                path_without_top = [m for m in path if m != 'TOP']
-                intermediate_modules = path_without_top[1:-1]  # Exclude start and end
-                if len(intermediate_modules) > max_fd_num:
-                    error_msg = "Path too long for signal {}: {} intermediate modules (max {})".format(
-                        signal_name, len(intermediate_modules), max_fd_num
-                    )
-                    logger.error(error_msg)
-                    errors.append(error_msg)
-                    continue
-                
-                # Generate FD modules for intermediate modules
-                for fd_module_name in intermediate_modules:
-                    if fd_module_name not in fd_modules:
-                        fd_modules[fd_module_name] = FDModule(fd_module_name)
-                    
-                    # Determine from/to based on path order
-                    # path = [src, int1, int2, ..., dst]
-                    # intermediate_modules = [int1, int2, ...]
-                    # For FD module at position idx: receives from path[idx], sends to path[idx+2]
-                    idx = intermediate_modules.index(fd_module_name)
-                    full_path_idx = idx + 1  # Position in full path
-                    from_module = path[full_path_idx - 1]
-                    to_module = path[full_path_idx + 1]
-                    
-                    fd_port = FDPort(
-                        signal_name=signal_name,
-                        from_module=from_module,
-                        to_module=to_module,
-                        width=width,
-                        is_bidir=is_bidir,
-                        autocase=autocase
-                    )
-                    fd_modules[fd_module_name].add_port(fd_port)
-                
-                # Build path report line
-                path_line = build_path_line(
-                    signal_name, path, intermediate_modules,
-                    case_style, is_bidir, connections, logger
-                )
-                path_report_lines.append(path_line)
-                
-                fd_signals.append({
-                    'signal': signal_name,
-                    'width': width,
-                    'from': mod1,
-                    'to': mod2,
-                    'path': path,
-                    'case_style': case_style,
-                    'is_bidir': is_bidir
-                })
+        top_input_conns = [c for c in conns if c.conn_type == 'i']  # TOP outputs to submodules
+        top_output_conns = [c for c in conns if c.conn_type == 'o']  # TOP receives from submodules
+        submodule_outputs = [c for c in conns if c.direction == 'o' and c.conn_type == 'w']
+        submodule_inputs = [c for c in conns if c.direction == 'i' and c.conn_type == 'w']
+        
+        # Determine source(s) and sink(s)
+        source_module = None
+        sink_modules = []
+        
+        if top_input_conns:
+            # TOP input signal: TOP is source, all submodules are sinks
+            # Handle TOP to each submodule path independently
+            source_module = 'TOP'
+            sink_modules = list(set([c.module_name for c in conns]))
+        elif top_output_conns:
+            # TOP output signal: all submodules are sources, TOP is sink
+            # Handle each submodule to TOP path independently
+            source_modules = list(set([c.module_name for c in conns]))
+            for src_mod in source_modules:
+                _process_single_path(src_mod, 'TOP', signal_name, width, case_style,
+                                    adjacency, cache, waive_modules, only_modules,
+                                    fd_modules, fd_signals, path_report_lines, errors,
+                                    max_fd_num, connections, logger, is_bidir)
+            continue
+        elif submodule_outputs and submodule_inputs:
+            # Module-to-module wire: need to handle bidirectional pairs correctly
+            # Group by (source, sink) pairs based on direction
+            # Each output module connects to each input module
+            source_modules = list(set([c.module_name for c in submodule_outputs]))
+            sink_mods = list(set([c.module_name for c in submodule_inputs]))
+            
+            # Process each source-to-sink pair independently
+            for src_mod in source_modules:
+                for sink_mod in sink_mods:
+                    _process_single_path(src_mod, sink_mod, signal_name, width, case_style,
+                                        adjacency, cache, waive_modules, only_modules,
+                                        fd_modules, fd_signals, path_report_lines, errors,
+                                        max_fd_num, connections, logger, is_bidir)
+            continue
+        else:
+            # Cannot determine direction, skip
+            logger.info("Signal '{}': cannot determine direction (conn_type={}, direction={}), skipping.".format(
+                signal_name, [c.conn_type for c in conns], [c.direction for c in conns]))
+            continue
+        
+        # Process each source-to-sink path independently (handles one-to-many signals)
+        if source_module and sink_modules:
+            for sink_module in sink_modules:
+                _process_single_path(source_module, sink_module, signal_name, width, case_style,
+                                    adjacency, cache, waive_modules, only_modules,
+                                    fd_modules, fd_signals, path_report_lines, errors,
+                                    max_fd_num, connections, logger, is_bidir)
     
     logger.info("FD detection complete: {} signals require FD".format(len(fd_signals)))
     return fd_signals, fd_modules, path_report_lines, errors
@@ -1190,44 +1268,83 @@ def generate_fd_top(top_file, fd_signals, output_dir, logger, autocase=False, co
             else:
                 return "fd_{}_{}_{}".format(prefix.lower(), mod.lower(), sig.lower())
         
-        # Find the start module for this path
-        # Priority: non-TOP end > output direction in path > path[0]
-        start_module = None
+        # Determine source and sink modules based on conn_type from connections
+        # For conn_type='i' (TOP input): TOP is source, submodules are sinks
+        # For conn_type='o' (TOP output): submodules are sources, TOP is sink
+        # For conn_type='w' (wire): direction='o' is source, direction='i' is sink
         
-        # If one end is TOP, use the other end as start
-        if path[0] == 'TOP' and len(path) > 1:
-            start_module = path[1]
-        elif path[-1] == 'TOP' and len(path) > 1:
-            start_module = path[0]
+        signal_conns = [c for c in connections if c.signal_name == signal]
+        top_input = any(c.conn_type == 'i' for c in signal_conns)
+        top_output = any(c.conn_type == 'o' for c in signal_conns)
+        
+        # Determine source module (for modify logic)
+        source_module = None
+        if path[0] == 'TOP':
+            # TOP is source (top input signal)
+            # Don't modify TOP's connects, only modify sink module if needed
+            source_module = 'TOP'
+        elif path[-1] == 'TOP':
+            # TOP is sink (top output signal)
+            # Source is the first module in path
+            source_module = path[0]
         else:
-            # Find module with output direction in the path
+            # Module-to-module signal
+            # Find module with direction='o'
+            for conn in signal_conns:
+                if conn.direction == 'o' and conn.module_name == path[0]:
+                    source_module = path[0]
+                    break
+            if source_module is None:
+                source_module = path[0]
+        
+        # Only modify source module's connect if it's not TOP and not an intermediate FD module
+        # For top input signals (TOP→...→sink), don't modify intermediate FD modules
+        # For top output signals (src→...→TOP), modify src module
+        # For module-to-module signals (src→...→sink), modify src module
+        
+        if source_module != 'TOP' and source_module not in path[1:-1]:  # Not TOP and not intermediate
+            start_wire = get_port_name(signal, source_module, 'from')
+            
+            # Determine direction from connections
+            conn_dir = 'o'  # default
             if connections:
                 for conn in connections:
-                    if conn.signal_name == signal and conn.direction == 'o' and conn.module_name in path:
-                        start_module = conn.module_name
+                    if conn.signal_name == signal and conn.module_name == source_module:
+                        conn_dir = conn.direction
                         break
             
-            # If no output in path, use path[0] (reversed path, but still need CONNECTs)
-            if start_module is None:
-                start_module = path[0]
+            module_connects[source_module].append({
+                'type': 'modify',
+                'old_wire': signal,
+                'new_wire': start_wire,
+                'width': width,
+                'direction': conn_dir
+            })
         
-        start_wire = get_port_name(signal, start_module, 'from')
-        
-        # Determine direction from connections
-        conn_dir = 'o'  # default
-        if connections:
-            for conn in connections:
-                if conn.signal_name == signal and conn.module_name == start_module:
-                    conn_dir = conn.direction
-                    break
-        
-        module_connects[start_module].append({
-            'type': 'modify',
-            'old_wire': signal,
-            'new_wire': start_wire,
-            'width': width,
-            'direction': conn_dir
-        })
+        # Also modify the destination module's CONNECT
+        # The destination module should use fd_from_last_fd_module_signal
+        if len(path) > 2:
+            # There are FD modules, destination uses fd_from_last_fd
+            end_module = path[-1]
+            last_fd_module = path[-2]
+            if end_module != 'TOP':  # Don't modify TOP's connects
+                end_wire = get_port_name(signal, last_fd_module, 'from')
+                
+                # Find direction for end module
+                end_dir = 'i'  # default
+                if connections:
+                    for conn in connections:
+                        if conn.signal_name == signal and conn.module_name == end_module:
+                            end_dir = conn.direction
+                            break
+                
+                module_connects[end_module].append({
+                    'type': 'modify',
+                    'old_wire': signal,
+                    'new_wire': end_wire,
+                    'width': width,
+                    'direction': end_dir
+                })
         
         # Intermediate modules (append CONNECTs)
         for i in range(1, len(path) - 1):
@@ -1235,27 +1352,47 @@ def generate_fd_top(top_file, fd_signals, output_dir, logger, autocase=False, co
             from_module = path[i - 1]
             to_module = path[i + 1]
             
-            # Wire names (signal names between modules)
-            input_wire = get_port_name(signal, from_module, 'from')
-            output_wire = get_port_name(signal, fd_module, 'from')  # Wire from this FD module
-            
             # FD module port names
             input_port = get_port_name(signal, from_module, 'from')
             output_port = get_port_name(signal, to_module, 'to')
+            
+            # Wire names and CONNECT types
+            # When connected to TOP, use original signal name and i/o type
+            # When connected to regular module, use fd_from_X format and w type
+            
+            # Input side (from from_module to this FD module)
+            if from_module == 'TOP':
+                input_wire = signal  # Use original signal name (TOP port name)
+                input_type = 'i'  # Top-level input
+            else:
+                input_wire = get_port_name(signal, from_module, 'from')
+                input_type = 'w'  # Module-to-module
+            
+            # Output side (from this FD module to to_module)
+            # Rule: Only the connection to TOP uses original signal name
+            # All other connections (including to final destination module) use fd_from_X format
+            if to_module == 'TOP':
+                output_wire = signal  # Use original signal name (TOP port name)
+                output_type = 'o'  # Top-level output
+            else:
+                output_wire = get_port_name(signal, fd_module, 'from')  # Wire from this FD module
+                output_type = 'w'
             
             module_connects[fd_module].append({
                 'type': 'append',
                 'wire': input_wire,
                 'port': input_port,
                 'width': width,
-                'direction': 'i'
+                'direction': 'i',
+                'conn_type': input_type
             })
             module_connects[fd_module].append({
                 'type': 'append',
                 'wire': output_wire,
                 'port': output_port,
                 'width': width,
-                'direction': 'o'
+                'direction': 'o',
+                'conn_type': output_type
             })
     
     # Process each module
@@ -1324,7 +1461,10 @@ def generate_fd_top(top_file, fd_signals, output_dir, logger, autocase=False, co
         for conn in unique_appends:
             # Add new CONNECT line
             instance_name = "U_" + module_name
-            connect_line = "//CONNECT(w, {}, {}`{}, {}, {});\n".format(
+            # Use conn_type from connection, default to 'w'
+            conn_type = conn.get('conn_type', 'w')
+            connect_line = "//CONNECT({}, {}, {}`{}, {}, {});\n".format(
+                conn_type,
                 conn['wire'],
                 instance_name,
                 conn['port'],
