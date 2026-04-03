@@ -630,7 +630,9 @@ def bfs_shortest_path(adjacency, src, dst, cache, waive_modules=None, only_modul
     while queue:
         current, path = queue.pop(0)
         
-        for neighbor in adjacency.get(current, []):
+        # Sort neighbors for deterministic path selection
+        # Without sorting, set iteration order is non-deterministic
+        for neighbor in sorted(adjacency.get(current, [])):
             # Skip TOP module (cannot place FD on TOP)
             if neighbor == 'TOP':
                 continue
