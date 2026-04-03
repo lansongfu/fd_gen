@@ -1552,81 +1552,98 @@ def generate_fd_top(top_file, fd_signals, output_dir, logger, autocase=False, co
             
             # Add blank line AFTER FD CONNECTs (before next INSTANCE)
             lines.insert(insert_pos, '\n')
-        
-        # Align all CONNECT lines within this module (local alignment)
-        # Scan from connect_start to find all CONNECT lines (including appended ones)
-        align_start = connect_start
-        # Find the actual end by scanning forward from connect_start
-        align_end = connect_start
-        for idx in range(connect_start, min(connect_start + 200, len(lines))):
-            line = lines[idx].strip()
-            if line.startswith('//CONNECT(') or line.startswith('//CONNECT ('):
-                align_end = idx + 1
-            elif line.startswith('//INSTANCE') or 'end SOC_IGT comment list' in line:
-                break
-        connect_data = []
-        
-        for idx in range(align_start, align_end):
-            if idx >= len(lines):
-                break
-            line = lines[idx].rstrip('\r\n')
-            if not line.strip().startswith('//CONNECT('):
-                continue
-            
-            # Parse fields using cleaned line
-            clean = line.replace(' ', '').replace('\t', '')
-            if clean.endswith(');'):
-                clean = clean[:-2]
-            
-            parts = clean.split(',')
-            if len(parts) >= 5:
-                conn_type = parts[0].replace('//CONNECT(', '')
-                wire = parts[1]
-                inst_port = parts[2]
-                width = parts[3]
-                direction = parts[4]
-                
-                connect_data.append({
-                    'line_idx': idx,
-                    'type': conn_type,
-                    'wire': wire,
-                    'inst_port': inst_port,
-                    'width': width,
-                    'direction': direction,
-                    'original_line': line
-                })
-        
-        # Calculate max widths for this module
-        if connect_data:
-            max_wire_len = max(len(d['wire']) for d in connect_data)
-            max_inst_len = max(len(d['inst_port']) for d in connect_data)
-            max_width_len = max(len(d['width']) for d in connect_data)
-            
-            # Format all CONNECT lines with aligned commas
-            for d in connect_data:
-                # Build formatted line with padding
-                # Format: //CONNECT(type, wire, inst_port, width, direction);
-                wire_padding = ' ' * (max_wire_len - len(d['wire']) + 1)
-                inst_padding = ' ' * (max_inst_len - len(d['inst_port']) + 1)
-                width_padding = ' ' * (max_width_len - len(d['width']) + 1)
-                
-                # Use string concatenation to avoid format() index issues
-                # Format: //CONNECT(type, wire, inst_port, width, direction);
-                # Commas at fixed positions, padding AFTER comma
-                formatted = (
-                    "//CONNECT(" + d['type'] + ", " +
-                    d['wire'] + "," + wire_padding + " " +
-                    d['inst_port'] + "," + inst_padding + " " +
-                    d['width'] + "," + width_padding + " " +
-                    d['direction'] + ");"
-                )
-                lines[d['line_idx']] = formatted + '\n'
+    
+    # Align all CONNECT lines after all modifications are complete
+    # Scan entire file, align CONNECTs within each INSTANCE block
+    align_all_connects(lines)
     
     # Write back
     with open(fd_top_path, 'w') as f:
         f.writelines(lines)
     
     logger.info("Generated: {}".format(fd_top_path))
+
+
+def align_all_connects(lines):
+    """
+    Align all CONNECT lines in the file.
+    - Scan line by line
+    - For each INSTANCE block, collect all CONNECT lines
+    - Calculate max width for each column (wire, inst_port, width)
+    - Format all CONNECT lines with aligned commas
+    """
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        
+        # Check if this is an INSTANCE line
+        if line.strip().startswith('//INSTANCE('):
+            # Found INSTANCE, now collect all CONNECT lines in this block
+            connect_start = i + 1
+            connect_end = connect_start
+            connect_data = []
+            
+            # Scan forward to find all CONNECT lines until next INSTANCE or end marker
+            for j in range(connect_start, min(connect_start + 500, len(lines))):
+                scan_line = lines[j].strip()
+                
+                if scan_line.startswith('//CONNECT(') or scan_line.startswith('//CONNECT ('):
+                    # Parse this CONNECT line
+                    clean = lines[j].replace(' ', '').replace('\t', '').replace('\r', '').replace('\n', '')
+                    if clean.endswith(');'):
+                        clean = clean[:-2]
+                    
+                    parts = clean.split(',')
+                    if len(parts) >= 5:
+                        conn_type = parts[0].replace('//CONNECT(', '')
+                        wire = parts[1]
+                        inst_port = parts[2]
+                        width = parts[3]
+                        direction = parts[4]
+                        
+                        connect_data.append({
+                            'line_idx': j,
+                            'type': conn_type,
+                            'wire': wire,
+                            'inst_port': inst_port,
+                            'width': width,
+                            'direction': direction
+                        })
+                    
+                    connect_end = j + 1
+                elif scan_line.startswith('//INSTANCE') or 'end SOC_IGT comment list' in scan_line:
+                    # End of this INSTANCE block
+                    break
+                else:
+                    # Empty line or other comment, continue scanning
+                    continue
+            
+            # Align CONNECTs in this block
+            if connect_data:
+                # Calculate max widths
+                max_wire_len = max(len(d['wire']) for d in connect_data)
+                max_inst_len = max(len(d['inst_port']) for d in connect_data)
+                max_width_len = max(len(d['width']) for d in connect_data)
+                
+                # Format all CONNECT lines
+                for d in connect_data:
+                    wire_padding = ' ' * (max_wire_len - len(d['wire']) + 1)
+                    inst_padding = ' ' * (max_inst_len - len(d['inst_port']) + 1)
+                    width_padding = ' ' * (max_width_len - len(d['width']) + 1)
+                    
+                    formatted = (
+                        "//CONNECT(" + d['type'] + ", " +
+                        d['wire'] + "," + wire_padding + " " +
+                        d['inst_port'] + "," + inst_padding + " " +
+                        d['width'] + "," + width_padding + " " +
+                        d['direction'] + ");"
+                    )
+                    lines[d['line_idx']] = formatted + '\n'
+            
+            # Continue from end of this INSTANCE block
+            i = connect_end
+        else:
+            i += 1
 
 
 # ============================================================================
