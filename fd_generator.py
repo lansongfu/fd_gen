@@ -1438,19 +1438,27 @@ def generate_fd_top(top_file, fd_signals, output_dir, logger, autocase=False, co
             logger.warning("Instance {} not found in top file".format(module_name))
             continue
         
-        # Find CONNECT lines for this instance
+        # Find CONNECT lines for this instance (re-scan to get current position after previous inserts)
         connect_start = instance_idx + 1
         connect_end = connect_start
         
+        # Scan all CONNECT lines for this module
+        # Stop only when we hit the next INSTANCE or end of comment list
         while connect_end < len(lines):
             stripped = lines[connect_end].strip()
             if stripped.startswith('//CONNECT'):
                 connect_end += 1
-            elif stripped == '' or stripped.startswith('//'):
-                # Skip empty lines and comments between CONNECT lines
-                connect_end += 1
-            else:
+            elif stripped.startswith('//INSTANCE'):
+                # Hit next module's INSTANCE, stop here
                 break
+            elif stripped.startswith('// ------------ end SOC_IGT comment list'):
+                # Hit end of comment list, stop here
+                break
+            else:
+                # Skip empty lines and other comments, continue scanning
+                connect_end += 1
+        
+        # connect_end now points to the actual current position (after any previous inserts)
         
         # Separate modify and append connects
         modify_connects = [c for c in connects if c['type'] == 'modify']
@@ -1489,29 +1497,23 @@ def generate_fd_top(top_file, fd_signals, output_dir, logger, autocase=False, co
                 unique_appends.append(conn)
                 seen.add(key)
         
-        # Process append connects
-        current_connect_end = connect_end
-        for conn in unique_appends:
-            # Add new CONNECT line
-            instance_name = "U_" + module_name
-            # Use conn_type from connection, default to 'w'
-            conn_type = conn.get('conn_type', 'w')
-            connect_line = "//CONNECT({}, {}, {}`{}, {}, {});\n".format(
-                conn_type,
-                conn['wire'],
-                instance_name,
-                conn['port'],
-                conn['width'],
-                conn['direction']
-            )
-            
-            # Insert after last CONNECT
-            lines.insert(current_connect_end, connect_line)
-            current_connect_end += 1
-            
-            logger.debug("Added CONNECT in {}: {} -> {}".format(
-                module_name, conn['wire'], conn['port']
-            ))
+        # Process append connects - insert after this module's last CONNECT
+        # connect_end is already the current position (re-scanned after previous inserts)
+        if unique_appends:
+            insert_pos = connect_end
+            for conn in unique_appends:
+                instance_name = "U_" + module_name
+                conn_type = conn.get('conn_type', 'w')
+                connect_line = "//CONNECT({}, {}, {}`{}, {}, {});\n".format(
+                    conn_type,
+                    conn['wire'],
+                    instance_name,
+                    conn['port'],
+                    conn['width'],
+                    conn['direction']
+                )
+                lines.insert(insert_pos, connect_line)
+                insert_pos += 1
     
     # Write back
     with open(fd_top_path, 'w') as f:
