@@ -1535,6 +1535,7 @@ def generate_fd_top(top_file, fd_signals, output_dir, logger, autocase=False, co
         # connect_end is already the current position (re-scanned after previous inserts)
         if unique_appends:
             insert_pos = connect_end
+            # Insert FD CONNECTs (no blank line before)
             for conn in unique_appends:
                 instance_name = "U_" + module_name
                 conn_type = conn.get('conn_type', 'w')
@@ -1548,6 +1549,78 @@ def generate_fd_top(top_file, fd_signals, output_dir, logger, autocase=False, co
                 )
                 lines.insert(insert_pos, connect_line)
                 insert_pos += 1
+            
+            # Add blank line AFTER FD CONNECTs (before next INSTANCE)
+            lines.insert(insert_pos, '\n')
+        
+        # Align all CONNECT lines within this module (local alignment)
+        # Scan from connect_start to find all CONNECT lines (including appended ones)
+        align_start = connect_start
+        # Find the actual end by scanning forward from connect_start
+        align_end = connect_start
+        for idx in range(connect_start, min(connect_start + 200, len(lines))):
+            line = lines[idx].strip()
+            if line.startswith('//CONNECT(') or line.startswith('//CONNECT ('):
+                align_end = idx + 1
+            elif line.startswith('//INSTANCE') or 'end SOC_IGT comment list' in line:
+                break
+        connect_data = []
+        
+        for idx in range(align_start, align_end):
+            if idx >= len(lines):
+                break
+            line = lines[idx].rstrip('\r\n')
+            if not line.strip().startswith('//CONNECT('):
+                continue
+            
+            # Parse fields using cleaned line
+            clean = line.replace(' ', '').replace('\t', '')
+            if clean.endswith(');'):
+                clean = clean[:-2]
+            
+            parts = clean.split(',')
+            if len(parts) >= 5:
+                conn_type = parts[0].replace('//CONNECT(', '')
+                wire = parts[1]
+                inst_port = parts[2]
+                width = parts[3]
+                direction = parts[4]
+                
+                connect_data.append({
+                    'line_idx': idx,
+                    'type': conn_type,
+                    'wire': wire,
+                    'inst_port': inst_port,
+                    'width': width,
+                    'direction': direction,
+                    'original_line': line
+                })
+        
+        # Calculate max widths for this module
+        if connect_data:
+            max_wire_len = max(len(d['wire']) for d in connect_data)
+            max_inst_len = max(len(d['inst_port']) for d in connect_data)
+            max_width_len = max(len(d['width']) for d in connect_data)
+            
+            # Format all CONNECT lines with aligned commas
+            for d in connect_data:
+                # Build formatted line with padding
+                # Format: //CONNECT(type, wire, inst_port, width, direction);
+                wire_padding = ' ' * (max_wire_len - len(d['wire']) + 1)
+                inst_padding = ' ' * (max_inst_len - len(d['inst_port']) + 1)
+                width_padding = ' ' * (max_width_len - len(d['width']) + 1)
+                
+                # Use string concatenation to avoid format() index issues
+                # Format: //CONNECT(type, wire, inst_port, width, direction);
+                # Commas at fixed positions, padding AFTER comma
+                formatted = (
+                    "//CONNECT(" + d['type'] + ", " +
+                    d['wire'] + "," + wire_padding + " " +
+                    d['inst_port'] + "," + inst_padding + " " +
+                    d['width'] + "," + width_padding + " " +
+                    d['direction'] + ");"
+                )
+                lines[d['line_idx']] = formatted + '\n'
     
     # Write back
     with open(fd_top_path, 'w') as f:
