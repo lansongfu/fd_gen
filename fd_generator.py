@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
+r"""
 FD Generator - SoC Feedthrough Auto Generation Tool
 
 This tool automatically detects signals requiring feedthrough (FD) and generates
@@ -82,7 +82,7 @@ from datetime import datetime
 # Global Configuration
 # ============================================================================
 
-VERSION = "1.1.1"
+VERSION = "1.1.13"
 DEFAULT_OUTPUT_DIR = "fd_output"
 DEFAULT_MAX_FD_NUM = 3
 
