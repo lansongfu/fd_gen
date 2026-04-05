@@ -1,23 +1,60 @@
-# Python cache
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
+.Python
+venv/
+ENV/
+env/
+*.egg-info/
+dist/
+build/
 
-# Test data (not for push)
-tests/
+# 测试输出（本地保留，不推送）
 test_output/
+*.vcd
 *.log
+output/
+tmp/
+fd_output/
+tests/*_out/
+tests/*/fd_modules/
+tests/*/fd_path_report.txt
+tests/*/fd_top.v
+
+# 测试报告（本地保留）
+tests/*_REPORT*.md
+tests/*.md
+
+# 边界测试文件（本地保留）
+tests/edge*.v
+tests/edge*.txt
+tests/test[0-9]*.v
+tests/test[0-9]*.txt
+tests/tc*.v
+tests/tc*.txt
+
+# 回归测试文件（本地保留）
+tests/reg*/
+tests/ct*/
+tests/ft*/
+tests/bt*/
+tests/t[0-9]*/
+
+# 临时测试文件
+tests/bug_*.py
+tests/verify_*/
+tests/final_*/
+tests/fix_*/
 
 # IDE
-.idea/
 .vscode/
+.idea/
 *.swp
 *.swo
+*~
 
 # OS
 .DS_Store
 Thumbs.db
-
-# Output directory (generated)
-fd_output/

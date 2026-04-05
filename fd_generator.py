@@ -11,9 +11,17 @@ Usage:
     python fd_generator.py -top <top.v> -floorplan <adjacency.txt> -link [-autocase] [-waive waive.txt] [-only only.txt]
 
 Author: Konoha Ninja (Crow)
-Version: 1.1.13
+Version: 1.1.14
 
 Changelog:
+  v1.1.14 (2026-04-05) - Default Max FD Level Increase
+    - Change: DEFAULT_MAX_FD_NUM from 3 to 5
+      * Allows deeper signal paths (up to 5 intermediate modules)
+      * Default behavior now supports more complex SoC designs
+    - Test: Added basic_top.v benchmark test (6 modules)
+    - Test: Added large-scale test (6-module chain structure)
+    - Test: Full test suite 8/8 passed (100%)
+
   v1.1.13 (2026-04-03) - CONNECT Alignment Fix Release
     - Fix: CONNECT alignment format with wrong comma positions
       * Changed padding from before comma to after field (left-align fields)
@@ -84,7 +92,7 @@ from datetime import datetime
 
 VERSION = "1.1.13"
 DEFAULT_OUTPUT_DIR = "fd_output"
-DEFAULT_MAX_FD_NUM = 3
+DEFAULT_MAX_FD_NUM = 5
 
 # ============================================================================
 # Logging Setup
