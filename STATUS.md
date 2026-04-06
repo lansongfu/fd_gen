@@ -54,16 +54,17 @@ fd_gen/
 | 2026-04-03 | v1.1.13 | CONNECT 对齐修复，BFS 确定性修复 |
 | 2026-04-04 | v1.1.13 | 版本号修复（1.1.1→1.1.13），语法警告修复 |
 | 2026-04-05 | v1.1.14 | 默认最大穿线基数 3→5，新增基准测试和大型测试 |
+| 2026-04-06 | v1.1.14 | 更新 STATUS.md，添加基准测试文件，推送至 GitHub |
 
 ---
 
 ## 🚦 当前状态
 
 - **版本:** v1.1.14
-- **状态:** 🔄 待推送
-- **测试:** 8/8 通过（100%）
+- **状态:** ✅ 已推送
+- **测试:** 49/49 通过（100%）
 - **GitHub:** https://github.com/lansongfu/fd_gen
-- **最新提交:** `a49c500` - feat: v1.1.14 - Default max FD level 3→5, add benchmark tests
+- **最新提交:** `5103236` - v1.1.14: Update STATUS.md and add benchmark test files
 
 ---
 
