@@ -63,7 +63,7 @@ fd_gen/
 - **状态:** 🔄 待推送
 - **测试:** 8/8 通过（100%）
 - **GitHub:** https://github.com/lansongfu/fd_gen
-- **最新提交:** `aa19dd2` - fix: Update VERSION to 1.1.13
+- **最新提交:** `a49c500` - feat: v1.1.14 - Default max FD level 3→5, add benchmark tests
 
 ---
 
